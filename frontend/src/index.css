@@ -1,0 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.abc-render svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.abc-render .abcjs-note_selected {
+  fill: #16a34a;
+}

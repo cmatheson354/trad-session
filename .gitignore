@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+
+# Runtime data (DB, recordings) — never commit
+data/
+
+# TLS certs (machine-specific)
+certs/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/

@@ -1,0 +1,45 @@
+Trad Session — Test Data Pack
+==============================
+
+This pack contains a sample library of ~163 Irish traditional tunes
+(reels, jigs, hornpipes, polkas, airs and more) with ABC notation,
+keys, and modes — useful for development and UI testing.
+
+The data is a real tune library. No personal info, no recordings.
+
+HOW TO INSTALL
+--------------
+
+OPTION A — Docker (recommended)
+  1. Start the app at least once so the named volume is created:
+       docker compose up -d
+
+  2. Copy the SQL dump into the running container and load it:
+       docker cp tunes.sql <container_name>:/tmp/tunes.sql
+       docker exec <container_name> sqlite3 /data/tunes.db < /tmp/tunes.sql
+
+     Default container name is "trad-session-trad-session-1".
+     Check with: docker compose ps
+
+OPTION B — Local development (Flask running natively)
+  1. Make sure DATA_DIR exists and the app has been run once
+     (so the schema is created):
+       mkdir -p ./data
+       DATA_DIR=./data python app.py   # then Ctrl-C
+
+  2. Load the data:
+       sqlite3 ./data/tunes.db < tunes.sql
+
+  3. Restart the app.
+
+NOTES
+-----
+- This will MERGE into any existing database (INSERT OR IGNORE on id
+  conflicts), so it is safe to run on an existing install.
+- It does NOT overwrite tunes you already have.
+- Recordings are not included (they are binary audio files).
+- The settings table (share tokens etc.) is not included.
+
+To start completely fresh instead:
+  rm ./data/tunes.db    # or stop container, docker volume rm <vol>
+  then follow the steps above.
