@@ -1,4 +1,4 @@
-import TuneSnippet, { parseFirst8, buildSnippetAbc } from './TuneSnippet'
+import TuneSnippet from './TuneSnippet'
 
 const TYPE_COLORS = {
   reel:       'bg-green-100 text-green-800',
@@ -31,7 +31,7 @@ function daysSince(dateStr) {
   return `${Math.floor(diff / 365)}y ago`
 }
 
-export default function TuneCard({ tune, onClick, onPlay, notationView = "sheet", statusLabels = {}, tapMode = false }) {
+export default function TuneCard({ tune, onClick, notationView = "sheet", statusLabels = {}, tapMode = false }) {
   const typeLabel   = tune.tune_type.replace('_', ' ')
   const typeColor   = TYPE_COLORS[tune.tune_type] ?? 'bg-gray-100 text-gray-800'
   const dotColor    = STATUS_DOT[tune.status] ?? 'bg-gray-400'
@@ -83,23 +83,7 @@ export default function TuneCard({ tune, onClick, onPlay, notationView = "sheet"
       {tapMode && (
         <div className="absolute inset-0 rounded-xl bg-green-700/5 border-2 border-green-400 pointer-events-none" />
       )}
-      {/* Play button — only if ABC notation exists */}
-      {hasAbc && !tapMode && (
-        <button
-          onClick={e => {
-            e.stopPropagation()
-            const parsed = parseFirst8(tune.abc_notation, 8)
-            const snippetAbc = parsed
-              ? buildSnippetAbc(parsed.bodySlice, tune.tune_type, tune.tune_key, tune.mode)
-              : tune.abc_notation
-            onPlay({ ...tune, abc_notation: snippetAbc, _isSnippet: true })
-          }}
-          className="absolute bottom-3 right-3 w-7 h-7 rounded-full bg-green-700 hover:bg-green-600 text-white flex items-center justify-center shadow transition-colors opacity-0 group-hover:opacity-100"
-          title="Play snippet"
-        >
-          <span className="text-xs ml-0.5">▶</span>
-        </button>
-      )}
+
     </div>
   )
 }

@@ -1,18 +1,35 @@
+import { isAbcSearch } from '../abcSearch.js'
+
 const TUNE_TYPES = ['reel', 'jig', 'slip_jig', 'hornpipe', 'polka', 'waltz', 'air', 'mazurka', 'march']
 const KEYS = ['D', 'G', 'A', 'E', 'Bm', 'Em', 'Am', 'C', 'F', 'Bb', 'Eb', 'Ab']
 
 export default function FilterBar({ filters, onChange }) {
   const update = (key, val) => onChange(f => ({ ...f, [key]: val }))
+  const abcMode = isAbcSearch(filters.q)
 
   return (
     <div className="flex flex-wrap gap-3 items-center bg-white rounded-xl border border-gray-200 p-3 shadow-sm">
-      <input
-        type="text"
-        placeholder="Search tunes..."
-        value={filters.q}
-        onChange={e => update('q', e.target.value)}
-        className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm flex-1 min-w-40 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-      />
+      <div className="relative flex-1 min-w-40">
+        <input
+          type="text"
+          placeholder="Search by title or notes (e.g. GDEG…)"
+          value={filters.q}
+          onChange={e => update('q', e.target.value)}
+          className={`w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:border-transparent pr-16 font-mono ${
+            abcMode
+              ? 'border-green-400 focus:ring-green-500 bg-green-50'
+              : 'border-gray-300 focus:ring-green-500 bg-white'
+          }`}
+        />
+        {abcMode && (
+          <span
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-green-700 font-semibold bg-green-100 px-1.5 py-0.5 rounded pointer-events-none"
+            title="Searching by first notes"
+          >
+            ♩ notes
+          </span>
+        )}
+      </div>
       <select
         value={filters.type}
         onChange={e => update('type', e.target.value)}

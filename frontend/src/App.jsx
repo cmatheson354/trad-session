@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from './api.js'
+import { isAbcSearch, filterByNotes } from './abcSearch.js'
 import { loadStatusLabels, loadDupePrefs, saveDupePrefs } from './constants.js'
 import TuneGrid from './components/TuneGrid.jsx'
 import TuneModal from './components/TuneModal.jsx'
@@ -9,6 +10,7 @@ import StatsBar from './components/StatsBar.jsx'
 import FilterBar from './components/FilterBar.jsx'
 import SessionRecordingsModal from './components/SessionRecordingsModal.jsx'
 import MiniPlayer from './components/MiniPlayer.jsx'
+import { parseFirst8, buildSnippetAbc } from './components/TuneSnippet.jsx'
 import ImportExportModal from './components/ImportExportModal.jsx'
 import ListMenu from './components/ListMenu.jsx'
 import SetsView from './components/SetsView.jsx'
@@ -109,8 +111,15 @@ export default function App() {
   const speedLabel = SPEEDS.find(s => s.value === speed)?.label ?? '100%'
 
   const loadTunes = useCallback(async () => {
-    try { setTunes(await api.tunes.list(filters)) }
-    catch (e) { console.error('Failed to load tunes', e) }
+    try {
+      if (isAbcSearch(filters.q)) {
+        // Fetch with other filters intact but no title filter, then match notes client-side
+        const all = await api.tunes.list({ ...filters, q: '' })
+        setTunes(filterByNotes(all, filters.q))
+      } else {
+        setTunes(await api.tunes.list(filters))
+      }
+    } catch (e) { console.error('Failed to load tunes', e) }
   }, [filters])
 
   const loadStats = useCallback(async () => {
@@ -169,6 +178,8 @@ export default function App() {
   }
 
   const STATUSES = ['want_to_learn', 'learning', 'know_it', 'performance_ready']
+  const lastCardClick = useRef({ id: null, time: 0 })
+
   const handleCardClick = async (tune) => {
     if (tapMode) {
       const idx = STATUSES.indexOf(tune.status)
@@ -176,8 +187,24 @@ export default function App() {
       const updated = await api.tunes.update(tune.id, { ...tune, status: next })
       setTunes(ts => ts.map(t => t.id === updated.id ? updated : t))
       loadStats()
-    } else {
+      return
+    }
+    const now = Date.now()
+    const prev = lastCardClick.current
+    if (prev.id === tune.id && now - prev.time < 3000) {
+      // Second click (or double-click) within 3 s → open details
+      lastCardClick.current = { id: null, time: 0 }
       setSelectedTune(tune)
+    } else {
+      // First click → play snippet
+      lastCardClick.current = { id: tune.id, time: now }
+      if (tune.abc_notation?.trim()) {
+        const parsed = parseFirst8(tune.abc_notation, 8)
+        const snippetAbc = parsed
+          ? buildSnippetAbc(parsed.bodySlice, tune.tune_type, tune.tune_key, tune.mode)
+          : tune.abc_notation
+        handleMiniPlay({ ...tune, abc_notation: snippetAbc, _isSnippet: true })
+      }
     }
   }
 
@@ -350,7 +377,7 @@ export default function App() {
             </p>
           </div>
         ) : (
-          <TuneGrid tunes={tunes} onSelect={handleCardClick} onPlay={handleMiniPlay} notationView={notationView} statusLabels={statusLabels} tapMode={tapMode} />
+          <TuneGrid tunes={tunes} onSelect={handleCardClick} notationView={notationView} statusLabels={statusLabels} tapMode={tapMode} />
         )}
       </main>
 

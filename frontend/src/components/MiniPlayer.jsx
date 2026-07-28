@@ -21,11 +21,19 @@ export default function MiniPlayer({ title, abc, onClose, instrument: instrument
   useEffect(() => { if (instrumentProp !== undefined) setInstrument(instrumentProp) }, [instrumentProp]) // eslint-disable-line
   useEffect(() => { if (speedProp !== undefined)      setSpeed(speedProp)           }, [speedProp])      // eslint-disable-line
 
-  // Guaranteed stop when mini player is removed from DOM for any reason
   useEffect(() => () => stopAll(), []) // eslint-disable-line
+
+  const markStopped = (synth) => {
+    // Only update state if this synth is still the active one
+    if (synthRef.current === synth) {
+      synthRef.current = null
+    }
+    setStatus('stopped')
+  }
 
   const stop = () => {
     clearInterval(synthRef.current?._poll)
+    clearTimeout(synthRef.current?._durationTimer)
     if (synthRef.current) {
       unregisterSynth(synthRef.current._stopFn)
       synthRef.current.stop?.()
@@ -35,7 +43,6 @@ export default function MiniPlayer({ title, abc, onClose, instrument: instrument
   }
 
   const play = async (prog, spd) => {
-    // Stop any currently playing audio globally
     stop()
     if (!abc?.trim() || !abcjs.synth.supportsAudio()) { setStatus('error'); return }
     setStatus('loading')
@@ -49,11 +56,16 @@ export default function MiniPlayer({ title, abc, onClose, instrument: instrument
       : undefined
 
     const synth = new abcjs.synth.CreateSynth()
-    const stopFn = () => { clearInterval(synth._poll); synth.stop?.() }
+
+    // stopFn is called by audioManager when another player starts — must update UI state
+    const stopFn = () => {
+      clearInterval(synth._poll)
+      clearTimeout(synth._durationTimer)
+      synth.stop?.()
+      markStopped(synth)
+    }
     synth._stopFn = stopFn
     synthRef.current = synth
-
-    // Register with global manager — this stops any SynthController playing in modals
     registerSynth(stopFn, 'synth')
 
     let active = true
@@ -64,11 +76,14 @@ export default function MiniPlayer({ title, abc, onClose, instrument: instrument
         onEnded: () => {
           if (!active) return
           clearInterval(synth._poll)
-          setStatus('stopped')
+          clearTimeout(synth._durationTimer)
+          markStopped(synth)
         },
       })
       await synth.prime()
       if (!active) return
+
+      const durationMs = synth.duration > 0 ? synth.duration * 1000 : null
       synth.start()
       setStatus('playing')
       setElapsed(0)
@@ -76,9 +91,25 @@ export default function MiniPlayer({ title, abc, onClose, instrument: instrument
       const startTime = Date.now()
       const poll = setInterval(() => {
         if (!active || !synthRef.current) { clearInterval(poll); return }
-        setElapsed(Math.floor((Date.now() - startTime) / 1000))
+        const t = Math.floor((Date.now() - startTime) / 1000)
+        setElapsed(t)
+        // Last-resort fallback: if we've run past expected duration, stop
+        if (durationMs && t * 1000 > durationMs + 800) {
+          clearInterval(poll)
+          markStopped(synth)
+        }
       }, 500)
       synth._poll = poll
+
+      // Primary fallback timer (fires if onEnded doesn't)
+      if (durationMs) {
+        const timer = setTimeout(() => {
+          if (!active || synthRef.current !== synth) return
+          clearInterval(synth._poll)
+          markStopped(synth)
+        }, durationMs + 400)
+        synth._durationTimer = timer
+      }
     } catch (e) {
       if (active) setStatus('error')
     }
@@ -106,7 +137,7 @@ export default function MiniPlayer({ title, abc, onClose, instrument: instrument
     return () => clearTimeout(t)
   }, [status]) // eslint-disable-line
 
-  // Auto-close after snippet finishes
+  // Auto-close snippet once stopped
   useEffect(() => {
     if (status !== 'stopped' || !isSnippet) return
     const t = setTimeout(() => onClose(), 600)
