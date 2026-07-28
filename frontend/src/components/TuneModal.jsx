@@ -65,6 +65,7 @@ export default function TuneModal({ tune, onClose, onEdit, onDelete, onPracticed
   const [tuneFriends,   setTuneFriends]   = useState([])
   const [allFriends,    setAllFriends]    = useState([])
   const [showAddFriend, setShowAddFriend]  = useState(false)
+  const [friendQuery,   setFriendQuery]    = useState('')
 
   useEffect(() => {
     api.practice.list(tune.id).then(setPracticeLog).catch(console.error)
@@ -194,7 +195,7 @@ export default function TuneModal({ tune, onClose, onEdit, onDelete, onPracticed
 
 
           {/* Friends */}
-          {(tuneFriends.length > 0 || allFriends.length > 0) && (
+          {(
             <div>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Friends</h3>
@@ -205,28 +206,78 @@ export default function TuneModal({ tune, onClose, onEdit, onDelete, onPracticed
                   {showAddFriend ? 'Cancel' : '+ Tag friend'}
                 </button>
               </div>
-              {showAddFriend && (
-                <div className="mb-2">
-                  <select
-                    defaultValue=""
-                    onChange={async e => {
-                      const fid = parseInt(e.target.value)
-                      if (!fid) return
-                      await api.tuneFriends.add(tune.id, fid)
-                      const updated = await api.tuneFriends.list(tune.id)
-                      setTuneFriends(updated)
-                      setShowAddFriend(false)
-                    }}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  >
-                    <option value="">Select a friend…</option>
-                    {allFriends
-                      .filter(f => !tuneFriends.find(tf => tf.id === f.id))
-                      .map(f => <option key={f.id} value={f.id}>{f.name}</option>)
-                    }
-                  </select>
-                </div>
-              )}
+              {showAddFriend && (() => {
+                const q = friendQuery.trim().toLowerCase()
+                const untagged = allFriends.filter(f => !tuneFriends.find(tf => tf.id === f.id))
+                const suggestions = q ? untagged.filter(f => f.name.toLowerCase().includes(q)) : untagged
+                const exactMatch = untagged.find(f => f.name.toLowerCase() === q)
+                const canCreate = q.length > 0 && !exactMatch
+
+                const pickFriend = async (fid) => {
+                  await api.tuneFriends.add(tune.id, fid)
+                  const updated = await api.tuneFriends.list(tune.id)
+                  setTuneFriends(updated)
+                  setFriendQuery('')
+                  setShowAddFriend(false)
+                }
+
+                const createAndTag = async () => {
+                  const newFriend = await api.friends.create({ name: friendQuery.trim(), type: 'person', color: 'green' })
+                  setAllFriends(prev => [...prev, newFriend].sort((a, b) => a.name.localeCompare(b.name)))
+                  await api.tuneFriends.add(tune.id, newFriend.id)
+                  const updated = await api.tuneFriends.list(tune.id)
+                  setTuneFriends(updated)
+                  setFriendQuery('')
+                  setShowAddFriend(false)
+                }
+
+                return (
+                  <div className="mb-2">
+                    <input
+                      type="text"
+                      value={friendQuery}
+                      onChange={e => setFriendQuery(e.target.value)}
+                      placeholder="Search or create a friend…"
+                      autoFocus
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 mb-1"
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          if (suggestions.length === 1) pickFriend(suggestions[0].id)
+                          else if (canCreate) createAndTag()
+                        }
+                        if (e.key === 'Escape') { setShowAddFriend(false); setFriendQuery('') }
+                      }}
+                    />
+                    {(suggestions.length > 0 || canCreate) && (
+                      <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                        {suggestions.map(f => {
+                          const c = colorFor(f.color)
+                          return (
+                            <button
+                              key={f.id}
+                              onClick={() => pickFriend(f.id)}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 text-left border-b border-gray-100 last:border-0"
+                            >
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${c.dot}`} />
+                              {f.name}
+                              <span className="text-xs text-gray-400 capitalize ml-auto">{f.type}</span>
+                            </button>
+                          )
+                        })}
+                        {canCreate && (
+                          <button
+                            onClick={createAndTag}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-green-50 text-left text-green-700 font-medium"
+                          >
+                            <span className="text-base leading-none">+</span>
+                            Create "{friendQuery.trim()}"
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
               <div className="flex flex-wrap gap-2">
                 {tuneFriends.map(f => {
                   const c = colorFor(f.color)
