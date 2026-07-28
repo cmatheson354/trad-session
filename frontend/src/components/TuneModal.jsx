@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { colorFor } from './FriendsModal.jsx'
 import { api } from '../api.js'
 import AbcRenderer from './AbcRenderer.jsx'
 import RecordingPanel from './RecordingPanel.jsx'
@@ -61,9 +62,14 @@ export default function TuneModal({ tune, onClose, onEdit, onDelete, onPracticed
   const [showSaveConfirm, setShowSaveConfirm] = useState(false)
   const [savingTranspose, setSavingTranspose] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [tuneFriends,   setTuneFriends]   = useState([])
+  const [allFriends,    setAllFriends]    = useState([])
+  const [showAddFriend, setShowAddFriend]  = useState(false)
 
   useEffect(() => {
     api.practice.list(tune.id).then(setPracticeLog).catch(console.error)
+    api.tuneFriends.list(tune.id).then(setTuneFriends).catch(console.error)
+    api.friends.list().then(setAllFriends).catch(console.error)
   }, [tune.id])
 
   const handleLogPractice = async () => {
@@ -185,6 +191,70 @@ export default function TuneModal({ tune, onClose, onEdit, onDelete, onPracticed
               transpose={transposeBy}
             />
           </div>
+
+
+          {/* Friends */}
+          {(tuneFriends.length > 0 || allFriends.length > 0) && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Friends</h3>
+                <button
+                  onClick={() => setShowAddFriend(v => !v)}
+                  className="text-xs text-green-700 hover:text-green-900"
+                >
+                  {showAddFriend ? 'Cancel' : '+ Tag friend'}
+                </button>
+              </div>
+              {showAddFriend && (
+                <div className="mb-2">
+                  <select
+                    defaultValue=""
+                    onChange={async e => {
+                      const fid = parseInt(e.target.value)
+                      if (!fid) return
+                      await api.tuneFriends.add(tune.id, fid)
+                      const updated = await api.tuneFriends.list(tune.id)
+                      setTuneFriends(updated)
+                      setShowAddFriend(false)
+                    }}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  >
+                    <option value="">Select a friend…</option>
+                    {allFriends
+                      .filter(f => !tuneFriends.find(tf => tf.id === f.id))
+                      .map(f => <option key={f.id} value={f.id}>{f.name}</option>)
+                    }
+                  </select>
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {tuneFriends.map(f => {
+                  const c = colorFor(f.color)
+                  return (
+                    <span
+                      key={f.id}
+                      className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${c.bg} ${c.text}`}
+                    >
+                      {f.name}
+                      <button
+                        onClick={async () => {
+                          await api.tuneFriends.remove(tune.id, f.id)
+                          setTuneFriends(ts => ts.filter(t => t.id !== f.id))
+                        }}
+                        className="opacity-50 hover:opacity-100 leading-none"
+                        title="Remove"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  )
+                })}
+                {tuneFriends.length === 0 && !showAddFriend && (
+                  <p className="text-xs text-gray-400">Not linked to any friends yet.</p>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Notes */}
           {tune.notes && (

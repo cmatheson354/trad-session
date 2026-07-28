@@ -22,11 +22,12 @@ import ShareModal from './components/ShareModal.jsx'
 import SessionMatcher from './components/SessionMatcher.jsx'
 import PairSwipe from './components/PairSwipe.jsx'
 import PairInvite from './components/PairInvite.jsx'
+import FriendsModal from './components/FriendsModal.jsx'
 
 export default function App() {
   const [tunes,           setTunes]          = useState([])
   const [stats,           setStats]          = useState(null)
-  const [filters,         setFilters]        = useState({ q: '', status: '', type: '', key: '' })
+  const [filters,         setFilters]        = useState({ q: '', status: '', type: '', key: '', friend_id: '' })
   const [selectedTune,    setSelectedTune]   = useState(null)
   const [showForm,        setShowForm]       = useState(false)
   const [showSearch,      setShowSearch]     = useState(false)
@@ -46,6 +47,8 @@ export default function App() {
   const [showShare,       setShowShare]       = useState(false)
   const [showMatcher,     setShowMatcher]     = useState(false)
   const [showPairInvite, setShowPairInvite]  = useState(false)
+  const [showFriends,    setShowFriends]     = useState(false)
+  const [friends,        setFriends]         = useState([])
   const [sameKeyIsDupe,   setSameKeyIsDupe]   = useState(() => (loadDupePrefs().sameKeyIsDupe ?? true))
   const [tapMode,         setTapMode]        = useState(false)
   const [statusLabels,    setStatusLabels]   = useState(() => loadStatusLabels())
@@ -303,6 +306,13 @@ export default function App() {
               🤝 Pair
             </button>
             <button
+              onClick={() => setShowFriends(true)}
+              className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
+              title="Friends"
+            >
+              👥 Friends
+            </button>
+            <button
               onClick={() => setShowTuner(true)}
               className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
               title="Chromatic Tuner"
@@ -367,7 +377,7 @@ export default function App() {
             onStatusClick={s => setFilters(f => ({ ...f, status: f.status === s ? '' : s }))}
           />
         )}
-        <FilterBar filters={filters} onChange={setFilters} />
+        <FilterBar filters={filters} onChange={setFilters} friends={friends} />
 
         {viewMode === 'sets' ? (
           <SetsView allTunes={tunes} onPlaySet={handlePlaySet} />
@@ -483,6 +493,13 @@ export default function App() {
       {showMatcher && (
         <SessionMatcher onClose={() => setShowMatcher(false)} statusLabels={statusLabels} />
       )}
+      {showFriends && (
+        <FriendsModal
+          onClose={() => setShowFriends(false)}
+          onFriendsChange={setFriends}
+        />
+      )}
+
       {showPairInvite && (
         <PairInvite onClose={() => setShowPairInvite(false)} />
       )}

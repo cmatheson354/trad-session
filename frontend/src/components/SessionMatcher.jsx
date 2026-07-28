@@ -82,6 +82,8 @@ export default function SessionMatcher({ onClose, statusLabels }) {
   const [scanMsg,  setScanMsg]  = useState('')
   const [loading,  setLoading]  = useState(true)
   const [genning,  setGenning]  = useState(false)
+  const [savingFriend, setSavingFriend] = useState(null)  // {label, url} being saved
+  const [savedFriends, setSavedFriends] = useState({})    // url -> friend name
 
   const videoRef  = useRef(null)
   const readerRef = useRef(null)
@@ -158,6 +160,17 @@ export default function SessionMatcher({ onClose, statusLabels }) {
   }, [])
 
   useEffect(() => () => stopScan(), [stopScan])
+
+  const saveAsQrFriend = async (player, matchedTunes) => {
+    setSavingFriend(player.label)
+    try {
+      const friend = await api.friends.create({ name: player.label, type: 'person', color: 'blue' })
+      const ids = matchedTunes.map(r => r.tune.id)
+      if (ids.length) await api.friends.addTunes(friend.id, ids, 'qr')
+      setSavedFriends(prev => ({ ...prev, [player.url]: player.label }))
+    } catch(e) { console.error(e) }
+    setSavingFriend(null)
+  }
 
   const overlap = computeOverlap(myTunes, players)
   const allMatch = overlap.filter(r => r.allMatch)
@@ -296,6 +309,22 @@ export default function SessionMatcher({ onClose, statusLabels }) {
                       + Add player
                     </button>
                   </div>
+                  {players.map((p, i) => (
+                    <div key={i} className="flex items-center justify-between bg-gray-800/40 rounded-lg px-3 py-2 text-sm">
+                      <span className="text-gray-300">{p.label}</span>
+                      {savedFriends[p.url] ? (
+                        <span className="text-xs text-emerald-400">✓ Saved as friend</span>
+                      ) : (
+                        <button
+                          onClick={() => saveAsQrFriend(p, overlap.filter(r => r.allMatch))}
+                          disabled={savingFriend === p.label}
+                          className="text-xs text-emerald-400 hover:text-emerald-300 disabled:opacity-50"
+                        >
+                          {savingFriend === p.label ? 'Saving…' : '+ Save as friend'}
+                        </button>
+                      )}
+                    </div>
+                  ))}
 
                   {allMatch.length > 0 && (
                     <div>

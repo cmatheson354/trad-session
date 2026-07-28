@@ -74,3 +74,20 @@ api.pair = {
   results: (code) => req('GET', '/pair/' + code + '/results'),
   deleteInvite: (code) => req('DELETE', '/pair/' + code),
 }
+
+api.friends = {
+  list: () => req('GET', '/friends'),
+  get: (id) => req('GET', '/friends/' + id),
+  create: (data) => req('POST', '/friends', data),
+  update: (id, data) => req('PUT', '/friends/' + id, data),
+  delete: (id) => req('DELETE', '/friends/' + id),
+  addTunes: (id, tuneIds, addedVia = 'manual') =>
+    req('POST', '/friends/' + id + '/tunes', { tune_ids: tuneIds, added_via: addedVia }),
+  removeTune: (id, tuneId) => req('DELETE', `/friends/${id}/tunes/${tuneId}`),
+}
+api.tuneFriends = {
+  list: (tuneId) => req('GET', '/tunes/' + tuneId + '/friends'),
+  add: (tuneId, friendId, addedVia = 'manual') =>
+    req('POST', '/tunes/' + tuneId + '/friends', { friend_id: friendId, added_via: addedVia }),
+  remove: (tuneId, friendId) => req('DELETE', `/tunes/${tuneId}/friends/${friendId}`),
+}

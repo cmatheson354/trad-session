@@ -117,9 +117,24 @@ function NamePrompt({ onSubmit }) {
 
 function Results({ code }) {
   const [data, setData] = useState(null)
+  const [savedFriend, setSavedFriend] = useState(null)
+  const [saving, setSaving] = useState(false)
   useEffect(() => {
     api.pair.results(code).then(setData)
   }, [code])
+
+  const saveAsSwipeFriend = async () => {
+    if (!data) return
+    setSaving(true)
+    try {
+      const name = data.voters[0]?.display_name || 'Session friend'
+      const friend = await api.friends.create({ name, type: 'person', color: 'teal' })
+      const ids = data.matched_tunes.map(t => t.id)
+      if (ids.length) await api.friends.addTunes(friend.id, ids, 'swipe')
+      setSavedFriend(name)
+    } catch(e) { console.error(e) }
+    setSaving(false)
+  }
 
   if (!data) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-700" /></div>
 
@@ -168,6 +183,21 @@ function Results({ code }) {
               </div>
             </div>
           ))
+        )}
+        {data?.voters?.length > 0 && matched_tunes.length > 0 && (
+          <div className="mt-6 text-center">
+            {savedFriend ? (
+              <p className="text-sm text-green-700">✓ Saved {savedFriend} as a friend with {matched_tunes.length} tune{matched_tunes.length !== 1 ? 's' : ''}</p>
+            ) : (
+              <button
+                onClick={saveAsSwipeFriend}
+                disabled={saving}
+                className="text-sm bg-green-700 hover:bg-green-600 disabled:bg-gray-300 text-white font-bold px-5 py-2.5 rounded-xl transition-colors"
+              >
+                {saving ? 'Saving…' : `+ Save ${data.voters[0]?.display_name || 'them'} as a friend`}
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

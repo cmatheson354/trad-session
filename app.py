@@ -296,6 +296,28 @@ def init_db():
     except Exception:
         pass
 
+    # Friends tables
+    try:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS friends (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL DEFAULT 'person',
+                color TEXT NOT NULL DEFAULT 'green',
+                notes TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS tune_friends (
+                tune_id INTEGER NOT NULL REFERENCES tunes(id) ON DELETE CASCADE,
+                friend_id INTEGER NOT NULL REFERENCES friends(id) ON DELETE CASCADE,
+                added_via TEXT NOT NULL DEFAULT 'manual',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (tune_id, friend_id)
+            );
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -436,21 +458,31 @@ def list_tunes():
     tune_type = request.args.get('type')
     key = request.args.get('key')
     search = request.args.get('q')
-    query = 'SELECT * FROM tunes WHERE 1=1'
-    params = []
-    if status:
-        query += ' AND status = ?'
-        params.append(status)
-    if tune_type:
-        query += ' AND tune_type = ?'
-        params.append(tune_type)
-    if key:
-        query += ' AND tune_key = ?'
-        params.append(key)
-    if search:
-        query += ' AND title LIKE ?'
-        params.append(f'%{search}%')
-    query += ' ORDER BY title ASC'
+    friend_id = request.args.get('friend_id')
+    if friend_id:
+        query = 'SELECT t.* FROM tunes t JOIN tune_friends tf ON tf.tune_id = t.id WHERE tf.friend_id = ?'
+        params = [friend_id]
+        if status:
+            query += ' AND t.status = ?'; params.append(status)
+        if tune_type:
+            query += ' AND t.tune_type = ?'; params.append(tune_type)
+        if key:
+            query += ' AND t.tune_key = ?'; params.append(key)
+        if search:
+            query += ' AND t.title LIKE ?'; params.append(f'%{search}%')
+        query += ' ORDER BY t.title ASC'
+    else:
+        query = 'SELECT * FROM tunes WHERE 1=1'
+        params = []
+        if status:
+            query += ' AND status = ?'; params.append(status)
+        if tune_type:
+            query += ' AND tune_type = ?'; params.append(tune_type)
+        if key:
+            query += ' AND tune_key = ?'; params.append(key)
+        if search:
+            query += ' AND title LIKE ?'; params.append(f'%{search}%')
+        query += ' ORDER BY title ASC'
     conn = get_db()
     tunes = conn.execute(query, params).fetchall()
     conn.close()
@@ -1085,6 +1117,158 @@ def pair_delete_invite(code):
     conn.commit()
     conn.close()
     return _pair_response({'ok': True}, token, is_new), 204
+
+
+
+# Friends API
+
+def _friend_row(row, conn):
+    f = dict(row)
+    f['tune_count'] = conn.execute(
+        'SELECT COUNT(*) FROM tune_friends WHERE friend_id=?', (f['id'],)
+    ).fetchone()[0]
+    return f
+
+
+@app.route('/api/friends', methods=['GET'])
+def list_friends():
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM friends ORDER BY name').fetchall()
+    result = [_friend_row(r, conn) for r in rows]
+    conn.close()
+    return jsonify(result)
+
+
+@app.route('/api/friends', methods=['POST'])
+def create_friend():
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        abort(400)
+    conn = get_db()
+    cur = conn.execute(
+        'INSERT INTO friends (name, type, color, notes) VALUES (?,?,?,?)',
+        (name, data.get('type', 'person'), data.get('color', 'green'), data.get('notes'))
+    )
+    conn.commit()
+    row = conn.execute('SELECT * FROM friends WHERE id=?', (cur.lastrowid,)).fetchone()
+    result = _friend_row(row, conn)
+    conn.close()
+    return jsonify(result), 201
+
+
+@app.route('/api/friends/<int:friend_id>', methods=['GET'])
+def get_friend(friend_id):
+    conn = get_db()
+    row = conn.execute('SELECT * FROM friends WHERE id=?', (friend_id,)).fetchone()
+    if not row:
+        conn.close(); abort(404)
+    f = _friend_row(row, conn)
+    tunes = conn.execute(
+        'SELECT t.*, tf.added_via FROM tunes t'
+        ' JOIN tune_friends tf ON tf.tune_id=t.id'
+        ' WHERE tf.friend_id=? ORDER BY t.title',
+        (friend_id,)
+    ).fetchall()
+    f['tunes'] = [dict(t) for t in tunes]
+    conn.close()
+    return jsonify(f)
+
+
+@app.route('/api/friends/<int:friend_id>', methods=['PUT'])
+def update_friend(friend_id):
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        abort(400)
+    conn = get_db()
+    row = conn.execute('SELECT id FROM friends WHERE id=?', (friend_id,)).fetchone()
+    if not row:
+        conn.close(); abort(404)
+    conn.execute(
+        'UPDATE friends SET name=?, type=?, color=?, notes=? WHERE id=?',
+        (name, data.get('type', 'person'), data.get('color', 'green'), data.get('notes'), friend_id)
+    )
+    conn.commit()
+    row = conn.execute('SELECT * FROM friends WHERE id=?', (friend_id,)).fetchone()
+    result = _friend_row(row, conn)
+    conn.close()
+    return jsonify(result)
+
+
+@app.route('/api/friends/<int:friend_id>', methods=['DELETE'])
+def delete_friend(friend_id):
+    conn = get_db()
+    conn.execute('DELETE FROM tune_friends WHERE friend_id=?', (friend_id,))
+    conn.execute('DELETE FROM friends WHERE id=?', (friend_id,))
+    conn.commit()
+    conn.close()
+    return '', 204
+
+
+@app.route('/api/friends/<int:friend_id>/tunes', methods=['POST'])
+def add_tunes_to_friend(friend_id):
+    data = request.get_json() or {}
+    tune_ids = data.get('tune_ids', [])
+    if isinstance(tune_ids, int):
+        tune_ids = [tune_ids]
+    added_via = data.get('added_via', 'manual')
+    conn = get_db()
+    for tid in tune_ids:
+        conn.execute(
+            'INSERT OR IGNORE INTO tune_friends (tune_id, friend_id, added_via) VALUES (?,?,?)',
+            (tid, friend_id, added_via)
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'added': len(tune_ids)})
+
+
+@app.route('/api/friends/<int:friend_id>/tunes/<int:tune_id>', methods=['DELETE'])
+def remove_tune_from_friend(friend_id, tune_id):
+    conn = get_db()
+    conn.execute('DELETE FROM tune_friends WHERE friend_id=? AND tune_id=?', (friend_id, tune_id))
+    conn.commit()
+    conn.close()
+    return '', 204
+
+
+@app.route('/api/tunes/<int:tune_id>/friends', methods=['GET'])
+def get_tune_friends(tune_id):
+    conn = get_db()
+    rows = conn.execute(
+        'SELECT f.*, tf.added_via FROM friends f'
+        ' JOIN tune_friends tf ON tf.friend_id=f.id'
+        ' WHERE tf.tune_id=? ORDER BY f.name',
+        (tune_id,)
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/tunes/<int:tune_id>/friends', methods=['POST'])
+def add_friend_to_tune(tune_id):
+    data = request.get_json() or {}
+    friend_id = data.get('friend_id')
+    if not friend_id:
+        abort(400)
+    conn = get_db()
+    conn.execute(
+        'INSERT OR IGNORE INTO tune_friends (tune_id, friend_id, added_via) VALUES (?,?,?)',
+        (tune_id, friend_id, data.get('added_via', 'manual'))
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/tunes/<int:tune_id>/friends/<int:friend_id>', methods=['DELETE'])
+def remove_friend_from_tune(tune_id, friend_id):
+    conn = get_db()
+    conn.execute('DELETE FROM tune_friends WHERE tune_id=? AND friend_id=?', (tune_id, friend_id))
+    conn.commit()
+    conn.close()
+    return '', 204
 
 
 @app.route('/', defaults={'path': ''})

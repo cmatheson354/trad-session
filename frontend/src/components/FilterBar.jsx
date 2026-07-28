@@ -3,7 +3,7 @@ import { isAbcSearch } from '../abcSearch.js'
 const TUNE_TYPES = ['reel', 'jig', 'slip_jig', 'hornpipe', 'polka', 'waltz', 'air', 'mazurka', 'march']
 const KEYS = ['D', 'G', 'A', 'E', 'Bm', 'Em', 'Am', 'C', 'F', 'Bb', 'Eb', 'Ab']
 
-export default function FilterBar({ filters, onChange }) {
+export default function FilterBar({ filters, onChange, friends = [] }) {
   const update = (key, val) => onChange(f => ({ ...f, [key]: val }))
   const abcMode = isAbcSearch(filters.q)
 
@@ -57,6 +57,18 @@ export default function FilterBar({ filters, onChange }) {
         >
           Clear
         </button>
+      )}
+      {friends.length > 0 && (
+        <select
+          value={filters.friend_id || ''}
+          onChange={e => update('friend_id', e.target.value)}
+          className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+        >
+          <option value="">All friends</option>
+          {friends.map(f => (
+            <option key={f.id} value={String(f.id)}>{f.name}</option>
+          ))}
+        </select>
       )}
     </div>
   )
