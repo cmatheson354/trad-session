@@ -55,14 +55,6 @@ export default function App() {
   )
 
 
-  // Route: /pair/<code> renders the swipe view
-  const pairMatch = window.location.pathname.match(/^\/pair\/([^/]+)/)
-  if (pairMatch) {
-    const pairCode = pairMatch[1]
-    if (pairCode === 'results') return null
-    return <PairSwipe code={pairCode} />
-  }
-
   const toggleNotationView = () =>
     setNotationView(v => {
       const next = v === 'sheet' ? 'abc' : 'sheet'
