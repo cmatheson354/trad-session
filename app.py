@@ -7,7 +7,8 @@ from datetime import datetime
 from flask import Flask, jsonify, request, send_from_directory, send_file, abort
 from flask_cors import CORS
 
-app = Flask(__name__, static_folder='static', static_url_path='')
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+app = Flask(__name__, static_folder=None)
 CORS(app)
 
 DATA_DIR = os.environ.get('DATA_DIR', 'data')
@@ -1089,9 +1090,9 @@ def pair_delete_invite(code):
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_spa(path):
-    if path and os.path.exists(os.path.join(app.static_folder, path)):
-        return send_from_directory(app.static_folder, path)
-    return send_from_directory(app.static_folder, 'index.html')
+    if path and os.path.exists(os.path.join(STATIC_DIR, path)):
+        return send_from_directory(STATIC_DIR, path)
+    return send_from_directory(STATIC_DIR, 'index.html')
 
 
 if __name__ == '__main__':
