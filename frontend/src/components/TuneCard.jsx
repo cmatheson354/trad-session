@@ -1,3 +1,4 @@
+import { colorFor } from './FriendsModal.jsx'
 import TuneSnippet from './TuneSnippet'
 
 const TYPE_COLORS = {
@@ -78,6 +79,24 @@ export default function TuneCard({ tune, onClick, notationView = "sheet", status
           <span className="text-xs text-gray-400">{lastPracticed}</span>
         )}
       </div>
+
+      {/* Friends */}
+      {tune.friends?.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {tune.friends.slice(0, 10).map(f => {
+            const c = colorFor(f.color)
+            return (
+              <span key={f.id} className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full ${c.bg} ${c.text}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${c.dot} shrink-0`} />
+                {f.name}
+              </span>
+            )
+          })}
+          {tune.friends.length > 10 && (
+            <span className="text-xs text-gray-400 px-1 py-0.5">+{tune.friends.length - 10} more</span>
+          )}
+        </div>
+      )}
 
       {/* Tap mode badge */}
       {tapMode && (

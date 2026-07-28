@@ -485,8 +485,24 @@ def list_tunes():
         query += ' ORDER BY title ASC'
     conn = get_db()
     tunes = conn.execute(query, params).fetchall()
+    tunes_list = [dict(t) for t in tunes]
+    if tunes_list:
+        tune_ids = [t['id'] for t in tunes_list]
+        placeholders = ','.join('?' * len(tune_ids))
+        friend_rows = conn.execute(
+            f'SELECT tf.tune_id, f.id, f.name, f.color FROM tune_friends tf '
+            f'JOIN friends f ON f.id=tf.friend_id WHERE tf.tune_id IN ({placeholders}) ORDER BY f.name',
+            tune_ids
+        ).fetchall()
+        friends_by_tune = {}
+        for r in friend_rows:
+            friends_by_tune.setdefault(r['tune_id'], []).append(
+                {'id': r['id'], 'name': r['name'], 'color': r['color']}
+            )
+        for t in tunes_list:
+            t['friends'] = friends_by_tune.get(t['id'], [])
     conn.close()
-    return jsonify([dict(t) for t in tunes])
+    return jsonify(tunes_list)
 
 
 @app.route('/api/tunes', methods=['POST'])
