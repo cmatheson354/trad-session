@@ -62,3 +62,15 @@ export const api = {
     revokeToken: () => req('POST', '/share/token', { action: 'revoke' }),
   },
 }
+
+// Extend api with pairing namespace
+api.pair = {
+  me: () => req('GET', '/pair/me'),
+  updateMe: (name) => req('POST', '/pair/me', { display_name: name }),
+  listInvites: () => req('GET', '/pair/invites'),
+  createInvite: (prompt, statuses) => req('POST', '/pair/invites', { prompt, statuses }),
+  getInvite: (code) => req('GET', '/pair/' + code),
+  vote: (code, tuneId, vote) => req('POST', '/pair/' + code + '/vote', { tune_id: tuneId, vote }),
+  results: (code) => req('GET', '/pair/' + code + '/results'),
+  deleteInvite: (code) => req('DELETE', '/pair/' + code),
+}

@@ -20,6 +20,8 @@ import DupeReviewModal from './components/DupeReviewModal.jsx'
 import Tuner from './components/Tuner.jsx'
 import ShareModal from './components/ShareModal.jsx'
 import SessionMatcher from './components/SessionMatcher.jsx'
+import PairSwipe from './components/PairSwipe.jsx'
+import PairInvite from './components/PairInvite.jsx'
 
 export default function App() {
   const [tunes,           setTunes]          = useState([])
@@ -43,6 +45,7 @@ export default function App() {
   const [showTuner,       setShowTuner]       = useState(false)
   const [showShare,       setShowShare]       = useState(false)
   const [showMatcher,     setShowMatcher]     = useState(false)
+  const [showPairInvite, setShowPairInvite]  = useState(false)
   const [sameKeyIsDupe,   setSameKeyIsDupe]   = useState(() => (loadDupePrefs().sameKeyIsDupe ?? true))
   const [tapMode,         setTapMode]        = useState(false)
   const [statusLabels,    setStatusLabels]   = useState(() => loadStatusLabels())
@@ -50,6 +53,15 @@ export default function App() {
   const [notationView,    setNotationView]   = useState(
     () => localStorage.getItem('notationView') ?? 'sheet'
   )
+
+
+  // Route: /pair/<code> renders the swipe view
+  const pairMatch = window.location.pathname.match(/^\/pair\/([^/]+)/)
+  if (pairMatch) {
+    const pairCode = pairMatch[1]
+    if (pairCode === 'results') return null
+    return <PairSwipe code={pairCode} />
+  }
 
   const toggleNotationView = () =>
     setNotationView(v => {
@@ -292,6 +304,13 @@ export default function App() {
               🎙 Sessions
             </button>
             <button
+              onClick={() => setShowPairInvite(true)}
+              className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
+              title="Tune Pairing"
+            >
+              🤝 Pair
+            </button>
+            <button
               onClick={() => setShowTuner(true)}
               className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
               title="Chromatic Tuner"
@@ -472,6 +491,10 @@ export default function App() {
       {showMatcher && (
         <SessionMatcher onClose={() => setShowMatcher(false)} statusLabels={statusLabels} />
       )}
+      {showPairInvite && (
+        <PairInvite onClose={() => setShowPairInvite(false)} />
+      )}
+
       {showShare && (
         <ShareModal onClose={() => setShowShare(false)} statusLabels={statusLabels} />
       )}

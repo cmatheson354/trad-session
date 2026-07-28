@@ -263,6 +263,38 @@ def init_db():
         """)
     except Exception:
         pass
+
+    # ── Pairing tables ────────────────────────────────────────────────────────────
+    try:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS players (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                display_name TEXT NOT NULL DEFAULT 'Anonymous',
+                cookie_token TEXT UNIQUE NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS pair_invites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code TEXT UNIQUE NOT NULL,
+                player_id INTEGER NOT NULL REFERENCES players(id),
+                prompt TEXT,
+                statuses TEXT NOT NULL DEFAULT 'know_it,performance_ready',
+                status TEXT NOT NULL DEFAULT 'open',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS pair_votes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                invite_id INTEGER NOT NULL REFERENCES pair_invites(id) ON DELETE CASCADE,
+                voter_id INTEGER NOT NULL REFERENCES players(id),
+                tune_id INTEGER NOT NULL REFERENCES tunes(id),
+                vote INTEGER NOT NULL DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(invite_id, voter_id, tune_id)
+            );
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -835,6 +867,223 @@ def get_thesession_tune(tune_id):
         })
     except Exception as exc:
         return jsonify({'error': str(exc)}), 502
+
+
+
+# ── Pairing (tune matching) ──────────────────────────────────────────────────
+
+import random as _random
+
+_PAIR_WORDS = ['reel', 'jig', 'polka', 'slip', 'horn', 'waltz', 'tune', 'fret', 'reed', 'bow']
+
+def _gen_pair_code():
+    word = _random.choice(_PAIR_WORDS).upper()
+    num = _random.randint(1000, 9999)
+    return f"{word}-{num}"
+
+def _get_or_create_player():
+    token = request.cookies.get('player_token')
+    conn = get_db()
+    player = None
+    if token:
+        player = conn.execute("SELECT * FROM players WHERE cookie_token=?", (token,)).fetchone()
+    if player:
+        conn.close()
+        return dict(player), token, False
+    new_token = secrets.token_urlsafe(24)
+    conn.execute("INSERT INTO players (cookie_token) VALUES (?)", (new_token,))
+    conn.commit()
+    player = conn.execute("SELECT * FROM players WHERE cookie_token=?", (new_token,)).fetchone()
+    conn.close()
+    return dict(player), new_token, True
+
+def _pair_response(data, token=None, is_new=False):
+    resp = jsonify(data)
+    if token and is_new:
+        resp.set_cookie('player_token', token, max_age=365*24*3600, httponly=True, samesite='Lax')
+    return resp
+
+
+@app.route('/api/pair/me', methods=['GET'])
+def pair_me():
+    player, token, is_new = _get_or_create_player()
+    return _pair_response({'player': player}, token, is_new)
+
+@app.route('/api/pair/me', methods=['POST'])
+def pair_update_me():
+    player, token, is_new = _get_or_create_player()
+    data = request.get_json() or {}
+    name = (data.get('display_name') or '').strip()
+    if name:
+        conn = get_db()
+        conn.execute("UPDATE players SET display_name=? WHERE id=?", (name, player['id']))
+        conn.commit()
+        player = dict(conn.execute("SELECT * FROM players WHERE id=?", (player['id'],)).fetchone())
+        conn.close()
+    return _pair_response({'player': player}, token, is_new)
+
+
+@app.route('/api/pair/invites', methods=['GET'])
+def pair_list_invites():
+    player, token, is_new = _get_or_create_player()
+    conn = get_db()
+    invites = conn.execute(
+        "SELECT * FROM pair_invites WHERE player_id=? ORDER BY created_at DESC",
+        (player['id'],)
+    ).fetchall()
+    result = []
+    for inv in invites:
+        inv_dict = dict(inv)
+        voters = conn.execute(
+            """SELECT DISTINCT p.display_name, p.id as voter_id
+               FROM pair_votes v JOIN players p ON p.id=v.voter_id
+               WHERE v.invite_id=?""",
+            (inv['id'],)
+        ).fetchall()
+        inv_dict['voters'] = [dict(v) for v in voters]
+        yes_count = conn.execute(
+            "SELECT COUNT(DISTINCT tune_id) FROM pair_votes WHERE invite_id=? AND vote=1",
+            (inv['id'],)
+        ).fetchone()[0]
+        inv_dict['yes_count'] = yes_count
+        result.append(inv_dict)
+    conn.close()
+    return _pair_response(result, token, is_new)
+
+
+@app.route('/api/pair/invites', methods=['POST'])
+def pair_create_invite():
+    player, token, is_new = _get_or_create_player()
+    data = request.get_json() or {}
+    prompt = (data.get('prompt') or '').strip() or None
+    statuses = data.get('statuses', 'know_it,performance_ready')
+    conn = get_db()
+    for _ in range(10):
+        code = _gen_pair_code()
+        try:
+            conn.execute(
+                "INSERT INTO pair_invites (code, player_id, prompt, statuses) VALUES (?,?,?,?)",
+                (code, player['id'], prompt, statuses)
+            )
+            conn.commit()
+            break
+        except Exception:
+            continue
+    else:
+        conn.close()
+        return jsonify({'error': 'Could not generate unique code'}), 500
+    invite = conn.execute("SELECT * FROM pair_invites WHERE code=?", (code,)).fetchone()
+    conn.close()
+    return _pair_response(dict(invite), token, is_new), 201
+
+
+@app.route('/api/pair/<code>', methods=['GET'])
+def pair_get_invite(code):
+    player, token, is_new = _get_or_create_player()
+    conn = get_db()
+    invite = conn.execute("SELECT * FROM pair_invites WHERE code=?", (code,)).fetchone()
+    if not invite:
+        conn.close()
+        abort(404)
+    inv = dict(invite)
+    owner = conn.execute("SELECT id, display_name FROM players WHERE id=?", (invite['player_id'],)).fetchone()
+    inv['owner'] = dict(owner) if owner else None
+    statuses = invite['statuses'].split(',')
+    placeholders = ','.join('?' * len(statuses))
+    tunes = conn.execute(
+        f"SELECT id, title, tune_type, tune_key, mode, abc_notation FROM tunes WHERE status IN ({placeholders}) ORDER BY title",
+        statuses
+    ).fetchall()
+    inv['tunes'] = [dict(t) for t in tunes]
+    inv['tune_count'] = len(tunes)
+    already_voted = conn.execute(
+        "SELECT tune_id, vote FROM pair_votes WHERE invite_id=? AND voter_id=?",
+        (invite['id'], player['id'])
+    ).fetchall()
+    inv['my_votes'] = {v['tune_id']: v['vote'] for v in already_voted}
+    inv['is_owner'] = (player['id'] == invite['player_id'])
+    conn.close()
+    return _pair_response(inv, token, is_new)
+
+
+@app.route('/api/pair/<code>/vote', methods=['POST'])
+def pair_vote(code):
+    player, token, is_new = _get_or_create_player()
+    data = request.get_json() or {}
+    tune_id = data.get('tune_id')
+    vote = data.get('vote')
+    if tune_id is None or vote is None:
+        abort(400)
+    conn = get_db()
+    invite = conn.execute("SELECT * FROM pair_invites WHERE code=? AND status='open'", (code,)).fetchone()
+    if not invite:
+        conn.close()
+        abort(404)
+    conn.execute(
+        "INSERT OR REPLACE INTO pair_votes (invite_id, voter_id, tune_id, vote) VALUES (?,?,?,?)",
+        (invite['id'], player['id'], tune_id, int(bool(vote)))
+    )
+    conn.commit()
+    conn.close()
+    return _pair_response({'ok': True}, token, is_new)
+
+
+@app.route('/api/pair/<code>/results', methods=['GET'])
+def pair_results(code):
+    player, token, is_new = _get_or_create_player()
+    conn = get_db()
+    invite = conn.execute("SELECT * FROM pair_invites WHERE code=?", (code,)).fetchone()
+    if not invite:
+        conn.close()
+        abort(404)
+    voters = conn.execute(
+        """SELECT DISTINCT p.id, p.display_name
+           FROM pair_votes v JOIN players p ON p.id=v.voter_id
+           WHERE v.invite_id=?""",
+        (invite['id'],)
+    ).fetchall()
+    statuses = invite['statuses'].split(',')
+    placeholders = ','.join('?' * len(statuses))
+    all_tunes = conn.execute(
+        f"SELECT id, title, tune_type, tune_key, mode FROM tunes WHERE status IN ({placeholders}) ORDER BY title",
+        statuses
+    ).fetchall()
+    votes = conn.execute(
+        "SELECT voter_id, tune_id, vote FROM pair_votes WHERE invite_id=?",
+        (invite['id'],)
+    ).fetchall()
+    vote_map = {}
+    for v in votes:
+        vote_map.setdefault(v['tune_id'], {})[v['voter_id']] = v['vote']
+    matched = []
+    for t in all_tunes:
+        tv = vote_map.get(t['id'], {})
+        if all(tv.get(v['id'], 0) == 1 for v in voters) and len(tv) == len(voters) and len(voters) > 0:
+            matched.append(dict(t))
+    owner = conn.execute("SELECT id, display_name FROM players WHERE id=?", (invite['player_id'],)).fetchone()
+    conn.close()
+    return _pair_response({
+        'invite': dict(invite),
+        'owner': dict(owner) if owner else None,
+        'voters': [dict(v) for v in voters],
+        'matched_tunes': matched,
+        'total_tunes': len(all_tunes),
+    }, token, is_new)
+
+
+@app.route('/api/pair/<code>', methods=['DELETE'])
+def pair_delete_invite(code):
+    player, token, is_new = _get_or_create_player()
+    conn = get_db()
+    invite = conn.execute("SELECT * FROM pair_invites WHERE code=? AND player_id=?", (code, player['id'])).fetchone()
+    if not invite:
+        conn.close()
+        abort(404)
+    conn.execute("DELETE FROM pair_votes WHERE invite_id=?", (invite['id'],))
+    conn.execute("DELETE FROM pair_invites WHERE id=?", (invite['id'],))
+    conn.commit()
+    conn.close()
+    return _pair_response({'ok': True}, token, is_new), 204
 
 
 @app.route('/', defaults={'path': ''})
