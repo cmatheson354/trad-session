@@ -57,7 +57,7 @@ export default function AbcRenderer({ notation, tuneId, instrument: instrumentPr
     const abc = buildAbc(notation, prog)
     const visualObjs = abcjs.renderAbc(notationId, abc, {
       add_classes: true,
-      staffwidth: 680,
+      staffwidth: 560,
       visualTranspose: transposeBy,
       wrap: { minSpacing: 1.8, maxSpacing: 2.7, preferredMeasuresPerLine: 4 },
     })
