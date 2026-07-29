@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import abcjs from 'abcjs'
 import 'abcjs/abcjs-audio.css'
+import { loadAbcjs } from '../abcjsLoader.js'
 import { INSTRUMENTS, SPEEDS, loadPrefs } from '../constants.js'
 import { registerSynth, unregisterSynth, stopAll } from '../audioManager.js'
 
@@ -14,11 +14,20 @@ export default function AbcRenderer({ notation, tuneId, instrument: instrumentPr
   const playerId   = `abc-player-${tuneId}`
   const synthRef   = useRef(null)
   const visualRef  = useRef(null)
+  const abcjsRef   = useRef(null)
+  const [abcjsReady, setAbcjsReady] = useState(false)
 
   const prefs = loadPrefs()
   const [instrument, setInstrument] = useState(instrumentProp ?? prefs.instrument ?? 73)
   const [speed,      setSpeed]      = useState(speedProp      ?? prefs.speed      ?? 100)
   const [transposeBy, setTransposeBy] = useState(transpose)
+
+  useEffect(() => {
+    loadAbcjs().then(lib => {
+      abcjsRef.current = lib
+      setAbcjsReady(true)
+    })
+  }, []) // eslint-disable-line
 
   const destroySynth = () => {
     if (synthRef.current) {
@@ -29,6 +38,7 @@ export default function AbcRenderer({ notation, tuneId, instrument: instrumentPr
   }
 
   const initSynth = (visualObjs, prog, spd) => {
+    const abcjs = abcjsRef.current
     if (!visualObjs?.length || !abcjs.synth.supportsAudio()) return
     destroySynth()
 
@@ -53,7 +63,8 @@ export default function AbcRenderer({ notation, tuneId, instrument: instrumentPr
   }
 
   const render = (prog, spd) => {
-    if (!notation?.trim()) return
+    const abcjs = abcjsRef.current
+    if (!abcjs || !notation?.trim()) return
     const abc = buildAbc(notation, prog)
     const visualObjs = abcjs.renderAbc(notationId, abc, {
       add_classes: true,
@@ -66,9 +77,10 @@ export default function AbcRenderer({ notation, tuneId, instrument: instrumentPr
   }
 
   useEffect(() => {
+    if (!abcjsReady) return
     render(instrument, speed)
     return () => destroySynth()
-  }, [notation, instrument, speed, transposeBy]) // eslint-disable-line
+  }, [abcjsReady, notation, instrument, speed, transposeBy]) // eslint-disable-line
 
   // Guaranteed stop on unmount, regardless of how the parent closes
   useEffect(() => () => stopAll(), []) // eslint-disable-line
@@ -78,7 +90,8 @@ export default function AbcRenderer({ notation, tuneId, instrument: instrumentPr
   useEffect(() => { setTransposeBy(transpose) }, [transpose]) // eslint-disable-line
 
   const handleMidiDownload = () => {
-    if (!notation) return
+    const abcjs = abcjsRef.current
+    if (!notation || !abcjs) return
     const midi = abcjs.synth.getMidiFile(buildAbc(notation, instrument), { midiOutputType: 'encoded' })
     const a = document.createElement('a')
     a.href = 'data:audio/midi;base64,' + midi
@@ -109,9 +122,15 @@ export default function AbcRenderer({ notation, tuneId, instrument: instrumentPr
         </button>
       </div>
 
+      {!abcjsReady && (
+        <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 flex items-center justify-center gap-2 text-gray-400 text-sm">
+          <span className="animate-spin inline-block">♩</span> Loading notation…
+        </div>
+      )}
+
       {hideSheet
         ? <div id={notationId} style={{ display: 'none' }} />
-        : <div className="bg-white rounded-lg border border-gray-200 p-3 overflow-x-auto">
+        : <div className={`bg-white rounded-lg border border-gray-200 p-3 overflow-x-auto${abcjsReady ? '' : ' hidden'}`}>
             <div id={notationId} className="abc-render min-h-16" />
           </div>
       }

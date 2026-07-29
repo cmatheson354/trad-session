@@ -24,6 +24,8 @@ import PairSwipe from './components/PairSwipe.jsx'
 import PairInvite from './components/PairInvite.jsx'
 import FriendsModal from './components/FriendsModal.jsx'
 
+const CACHE_KEY = 'trad-tunes-cache'
+
 export default function App() {
   const [tunes,           setTunes]          = useState([])
   const [stats,           setStats]          = useState(null)
@@ -35,6 +37,7 @@ export default function App() {
   const [prefillData,     setPrefillData]    = useState(null)
   const [showSessions,    setShowSessions]   = useState(false)
   const [loading,         setLoading]        = useState(true)
+  const [isOffline,       setIsOffline]      = useState(false)
   const [miniPlayer,      setMiniPlayer]     = useState(null)
   const [showListMenu,    setShowListMenu]   = useState(false)
   const [showImport,      setShowImport]     = useState(false)
@@ -117,17 +120,27 @@ export default function App() {
   }
   const speedLabel = SPEEDS.find(s => s.value === speed)?.label ?? '100%'
 
+  const noFiltersActive = !filters.q && !filters.status && !filters.type && !filters.key && !filters.friend_id
+
   const loadTunes = useCallback(async () => {
     try {
+      let data
       if (isAbcSearch(filters.q)) {
-        // Fetch with other filters intact but no title filter, then match notes client-side
         const all = await api.tunes.list({ ...filters, q: '' })
-        setTunes(filterByNotes(all, filters.q))
+        data = filterByNotes(all, filters.q)
       } else {
-        setTunes(await api.tunes.list(filters))
+        data = await api.tunes.list(filters)
       }
-    } catch (e) { console.error('Failed to load tunes', e) }
-  }, [filters])
+      setTunes(data)
+      setIsOffline(false)
+      if (noFiltersActive) {
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)) } catch (_) {}
+      }
+    } catch (e) {
+      console.error('Failed to load tunes', e)
+      setIsOffline(true)
+    }
+  }, [filters]) // eslint-disable-line
 
   const loadStats = useCallback(async () => {
     try { setStats(await api.stats()) }
@@ -135,9 +148,16 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    setLoading(true)
+    // Show cached tunes immediately, then revalidate in background
+    if (noFiltersActive) {
+      try {
+        const cached = localStorage.getItem(CACHE_KEY)
+        if (cached) { setTunes(JSON.parse(cached)); setLoading(false) }
+      } catch (_) {}
+    }
+    setLoading(prev => prev)  // keep spinner if no cache
     loadTunes().finally(() => setLoading(false))
-  }, [loadTunes])
+  }, [loadTunes]) // eslint-disable-line
 
   useEffect(() => { loadStats() }, [loadStats, tunes])
 
@@ -367,6 +387,11 @@ export default function App() {
       {tapMode && (
         <div className="bg-yellow-400 text-yellow-900 text-center text-xs font-semibold py-1.5 px-4">
           👆 Tap mode — tap any card to cycle its learning level. Tap 📋 List to turn off.
+        </div>
+      )}
+      {isOffline && (
+        <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-xs text-center py-1.5 px-4">
+          Offline — showing cached tunes
         </div>
       )}
       <main className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-3 sm:space-y-4">

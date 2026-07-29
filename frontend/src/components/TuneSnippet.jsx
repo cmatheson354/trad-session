@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import abcjs from 'abcjs'
+import { useEffect, useRef, useState } from 'react'
+import { loadAbcjs } from '../abcjsLoader.js'
 
 const METER = {
   jig:       '6/8',
@@ -77,9 +77,14 @@ export function buildSnippetAbc(bodySlice, tuneType, tuneKey, mode) {
 
 function SheetSnippet({ snippetAbc, tuneId }) {
   const ref = useRef(null)
+  const [abcjs, setAbcjs] = useState(null)
 
   useEffect(() => {
-    if (!ref.current || !snippetAbc) return
+    loadAbcjs().then(setAbcjs)
+  }, []) // eslint-disable-line
+
+  useEffect(() => {
+    if (!ref.current || !snippetAbc || !abcjs) return
     try {
       abcjs.renderAbc(ref.current, snippetAbc, {
         scale: 0.5,
@@ -92,7 +97,10 @@ function SheetSnippet({ snippetAbc, tuneId }) {
         add_classes: true,
       })
     } catch (_) { /* ignore invalid ABC fragments */ }
-  }, [snippetAbc])
+  }, [snippetAbc, abcjs]) // eslint-disable-line
+
+  // Render a placeholder until abcjs is ready — snippets are decorative
+  if (!abcjs) return <div style={{ minHeight: '36px' }} />
 
   return (
     <div
