@@ -11,9 +11,11 @@
   fill: #16a34a;
 }
 
-/* Hot pink note highlight during MIDI playback — color-blind safe */
-.abcjs-highlight path,
-.abcjs-highlight ellipse {
+/* Hot pink note highlight during MIDI playback — glow + broad element coverage */
+.abcjs-highlight {
+  filter: drop-shadow(0 0 6px #FF3399);
+}
+.abcjs-highlight * {
   fill: #FF3399 !important;
   stroke: #FF3399 !important;
 }
