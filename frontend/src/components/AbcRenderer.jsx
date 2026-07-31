@@ -79,11 +79,8 @@ export default function AbcRenderer({ notation, tuneId, instrument: instrumentPr
       displayLoop: true, displayRestart: true, displayPlay: true,
       displayProgress: true, displayWarp: false,
     })
-    const msPerMeasure = visualObjs[0].millisecondsPerMeasure
-      ? visualObjs[0].millisecondsPerMeasure() * (100 / spd)
-      : undefined
-    synth.setTune(visualObjs[0], false, {
-      ...(msPerMeasure ? { millisecondsPerMeasure: msPerMeasure } : {}),
+    synth.setTune(visualObjs[0], false, {}).then(() => {
+      if (typeof synth.setWarp === 'function') synth.setWarp(spd)
     }).catch(console.error)
   }
 
