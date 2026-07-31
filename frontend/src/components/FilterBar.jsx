@@ -3,7 +3,16 @@ import { isAbcSearch } from '../abcSearch.js'
 const TUNE_TYPES = ['reel', 'jig', 'slip_jig', 'hornpipe', 'polka', 'waltz', 'air', 'mazurka', 'march']
 const KEYS = ['D', 'G', 'A', 'E', 'Bm', 'Em', 'Am', 'C', 'F', 'Bb', 'Eb', 'Ab']
 
-export default function FilterBar({ filters, onChange, friends = [] }) {
+const SORT_OPTIONS = [
+  { value: 'title_asc',  label: 'A → Z' },
+  { value: 'title_desc', label: 'Z → A' },
+  { value: 'newest',     label: 'Newest' },
+  { value: 'oldest',     label: 'Oldest' },
+  { value: 'practiced',  label: 'Last Practiced' },
+  { value: 'random',     label: '🎲 Random' },
+]
+
+export default function FilterBar({ filters, onChange, friends = [], sort = 'title_asc', onSortChange, onReshuffle }) {
   const update = (key, val) => onChange(f => ({ ...f, [key]: val }))
   const abcMode = isAbcSearch(filters.q)
 
@@ -50,6 +59,26 @@ export default function FilterBar({ filters, onChange, friends = [] }) {
           <option key={k} value={k}>{k}</option>
         ))}
       </select>
+      <div className="flex items-center gap-1.5">
+        <select
+          value={sort}
+          onChange={e => onSortChange?.(e.target.value)}
+          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+        >
+          {SORT_OPTIONS.map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        {sort === 'random' && (
+          <button
+            onClick={onReshuffle}
+            className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm hover:bg-gray-50 transition-colors"
+            title="Shuffle again"
+          >
+            🎲
+          </button>
+        )}
+      </div>
       {(filters.q || filters.type || filters.key || filters.status) && (
         <button
           onClick={() => onChange({ q: '', status: '', type: '', key: '' })}

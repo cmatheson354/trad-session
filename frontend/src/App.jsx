@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { api } from './api.js'
 import { isAbcSearch, filterByNotes } from './abcSearch.js'
 import { loadStatusLabels, loadDupePrefs, saveDupePrefs } from './constants.js'
@@ -52,6 +52,8 @@ export default function App() {
   const [showPairInvite, setShowPairInvite]  = useState(false)
   const [showFriends,    setShowFriends]     = useState(false)
   const [friends,        setFriends]         = useState([])
+  const [sort,           setSort]            = useState('title_asc')
+  const [shuffleKey,     setShuffleKey]      = useState(0)
   const [sameKeyIsDupe,   setSameKeyIsDupe]   = useState(() => (loadDupePrefs().sameKeyIsDupe ?? true))
   const [tapMode,         setTapMode]        = useState(false)
   const [statusLabels,    setStatusLabels]   = useState(() => loadStatusLabels())
@@ -121,6 +123,29 @@ export default function App() {
   const speedLabel = SPEEDS.find(s => s.value === speed)?.label ?? '100%'
 
   const noFiltersActive = !filters.q && !filters.status && !filters.type && !filters.key && !filters.friend_id
+
+  const sortedTunes = useMemo(() => {
+    const arr = [...tunes]
+    switch (sort) {
+      case 'title_desc': return arr.sort((a, b) => b.title.localeCompare(a.title))
+      case 'newest':     return arr.sort((a, b) => b.id - a.id)
+      case 'oldest':     return arr.sort((a, b) => a.id - b.id)
+      case 'practiced':  return arr.sort((a, b) => {
+        if (!a.last_practiced_at && !b.last_practiced_at) return 0
+        if (!a.last_practiced_at) return 1
+        if (!b.last_practiced_at) return -1
+        return b.last_practiced_at.localeCompare(a.last_practiced_at)
+      })
+      case 'random': {
+        for (let i = arr.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [arr[i], arr[j]] = [arr[j], arr[i]]
+        }
+        return arr
+      }
+      default: return arr.sort((a, b) => a.title.localeCompare(b.title))
+    }
+  }, [tunes, sort, shuffleKey]) // eslint-disable-line
 
   const loadTunes = useCallback(async () => {
     try {
@@ -402,7 +427,7 @@ export default function App() {
             onStatusClick={s => setFilters(f => ({ ...f, status: f.status === s ? '' : s }))}
           />
         )}
-        <FilterBar filters={filters} onChange={setFilters} friends={friends} />
+        <FilterBar filters={filters} onChange={setFilters} friends={friends} sort={sort} onSortChange={setSort} onReshuffle={() => setShuffleKey(k => k + 1)} />
 
         {viewMode === 'sets' ? (
           <SetsView allTunes={tunes} onPlaySet={handlePlaySet} />
@@ -423,7 +448,7 @@ export default function App() {
             </p>
           </div>
         ) : (
-          <TuneGrid tunes={tunes} onSelect={handleCardClick} notationView={notationView} statusLabels={statusLabels} tapMode={tapMode} />
+          <TuneGrid tunes={sortedTunes} onSelect={handleCardClick} notationView={notationView} statusLabels={statusLabels} tapMode={tapMode} />
         )}
       </main>
 
