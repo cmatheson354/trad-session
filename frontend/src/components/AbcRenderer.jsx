@@ -9,12 +9,34 @@ function buildAbc(notation, program) {
   return `%%MIDI program ${program}\n${notation.trim()}`
 }
 
+
+function makeCursorControl(notationId) {
+  return {
+    beatSubdivisions: 2,
+    onStart() {},
+    onFinished() {
+      document.querySelectorAll(`#${notationId} .abcjs-highlight`).forEach(
+        el => el.classList.remove('abcjs-highlight')
+      )
+    },
+    onBeat() {},
+    onEvent(ev) {
+      document.querySelectorAll(`#${notationId} .abcjs-highlight`).forEach(
+        el => el.classList.remove('abcjs-highlight')
+      )
+      if (!ev.elements) return
+      ev.elements.forEach(voice => voice?.forEach(el => el.classList.add('abcjs-highlight')))
+    },
+  }
+}
+
 export default function AbcRenderer({ notation, tuneId, instrument: instrumentProp, speed: speedProp, hideSheet = false, transpose = 0 }) {
   const notationId = `abc-notation-${tuneId}`
   const playerId   = `abc-player-${tuneId}`
   const synthRef   = useRef(null)
   const visualRef  = useRef(null)
   const abcjsRef   = useRef(null)
+  const cursorRef   = useRef(null)
   const [abcjsReady, setAbcjsReady] = useState(false)
 
   const prefs = loadPrefs()
@@ -31,6 +53,9 @@ export default function AbcRenderer({ notation, tuneId, instrument: instrumentPr
 
   const destroySynth = () => {
     if (synthRef.current) {
+      document.querySelectorAll(`#${notationId} .abcjs-highlight`).forEach(
+        el => el.classList.remove('abcjs-highlight')
+      )
       unregisterSynth(synthRef.current._stopFn)
       synthRef.current.destroy()
       synthRef.current = null
@@ -50,7 +75,7 @@ export default function AbcRenderer({ notation, tuneId, instrument: instrumentPr
     synth._stopFn = stopFn
     registerSynth(stopFn, 'controller')
 
-    synth.load(`#${playerId}`, null, {
+    synth.load(`#${playerId}`, cursorRef.current, {
       displayLoop: true, displayRestart: true, displayPlay: true,
       displayProgress: true, displayWarp: false,
     })
@@ -73,6 +98,7 @@ export default function AbcRenderer({ notation, tuneId, instrument: instrumentPr
       wrap: { minSpacing: 1.8, maxSpacing: 2.7, preferredMeasuresPerLine: 4 },
     })
     visualRef.current = visualObjs
+    cursorRef.current = makeCursorControl(notationId)
     initSynth(visualObjs, prog, spd)
   }
 

@@ -10,3 +10,10 @@
 .abc-render .abcjs-note_selected {
   fill: #16a34a;
 }
+
+/* Hot pink note highlight during MIDI playback — color-blind safe */
+.abcjs-highlight path,
+.abcjs-highlight ellipse {
+  fill: #FF3399 !important;
+  stroke: #FF3399 !important;
+}
