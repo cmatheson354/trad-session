@@ -80,3 +80,13 @@ export function filterByNotes(tunes, query) {
     return false
   })
 }
+
+// Count structural parts from ABC notation.
+// Prefers :|  (end-repeat) markers; falls back to || (double-bar) for un-bracketed tunes.
+export function countParts(abc) {
+  if (!abc?.trim()) return null
+  const repeats = (abc.match(/:\|/g) || []).length
+  if (repeats > 0) return repeats
+  const doubles = (abc.match(/\|\|/g) || []).length
+  return doubles > 0 ? doubles : null
+}

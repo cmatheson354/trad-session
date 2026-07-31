@@ -1,4 +1,5 @@
 import { colorFor } from './FriendsModal.jsx'
+import { countParts } from '../abcSearch.js'
 import TuneSnippet from './TuneSnippet'
 
 const TYPE_COLORS = {
@@ -61,6 +62,9 @@ export default function TuneCard({ tune, onClick, notationView = "sheet", status
         )}
         {tune.mode && (
           <span className="text-xs text-gray-400 capitalize">{tune.mode}</span>
+          {countParts(tune.abc_notation) && (
+            <span className="text-xs text-gray-400 ml-auto">{countParts(tune.abc_notation)} pt</span>
+          )}
         )}
       </div>
 

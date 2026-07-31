@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { api } from './api.js'
-import { isAbcSearch, filterByNotes } from './abcSearch.js'
+import { isAbcSearch, filterByNotes, countParts } from './abcSearch.js'
 import { loadStatusLabels, loadDupePrefs, saveDupePrefs } from './constants.js'
 import TuneGrid from './components/TuneGrid.jsx'
 import TuneModal from './components/TuneModal.jsx'
@@ -54,6 +54,7 @@ export default function App() {
   const [friends,        setFriends]         = useState([])
   const [sort,           setSort]            = useState('title_asc')
   const [shuffleKey,     setShuffleKey]      = useState(0)
+  const [partsFilter,    setPartsFilter]     = useState('')
   const [sameKeyIsDupe,   setSameKeyIsDupe]   = useState(() => (loadDupePrefs().sameKeyIsDupe ?? true))
   const [tapMode,         setTapMode]        = useState(false)
   const [statusLabels,    setStatusLabels]   = useState(() => loadStatusLabels())
@@ -124,8 +125,17 @@ export default function App() {
 
   const noFiltersActive = !filters.q && !filters.status && !filters.type && !filters.key && !filters.friend_id
 
+  const filteredByParts = useMemo(() => {
+    if (!partsFilter) return tunes
+    return tunes.filter(t => {
+      const n = countParts(t.abc_notation)
+      if (partsFilter === '4+') return n !== null && n >= 4
+      return n === Number(partsFilter)
+    })
+  }, [tunes, partsFilter]) // eslint-disable-line
+
   const sortedTunes = useMemo(() => {
-    const arr = [...tunes]
+    const arr = [...filteredByParts]
     switch (sort) {
       case 'title_desc': return arr.sort((a, b) => b.title.localeCompare(a.title))
       case 'newest':     return arr.sort((a, b) => b.id - a.id)
@@ -145,7 +155,7 @@ export default function App() {
       }
       default: return arr.sort((a, b) => a.title.localeCompare(b.title))
     }
-  }, [tunes, sort, shuffleKey]) // eslint-disable-line
+  }, [filteredByParts, sort, shuffleKey]) // eslint-disable-line
 
   const loadTunes = useCallback(async () => {
     try {
@@ -427,7 +437,7 @@ export default function App() {
             onStatusClick={s => setFilters(f => ({ ...f, status: f.status === s ? '' : s }))}
           />
         )}
-        <FilterBar filters={filters} onChange={setFilters} friends={friends} sort={sort} onSortChange={setSort} onReshuffle={() => setShuffleKey(k => k + 1)} />
+        <FilterBar filters={filters} onChange={setFilters} friends={friends} sort={sort} onSortChange={setSort} onReshuffle={() => setShuffleKey(k => k + 1)} partsFilter={partsFilter} onPartsChange={setPartsFilter} />
 
         {viewMode === 'sets' ? (
           <SetsView allTunes={tunes} onPlaySet={handlePlaySet} />

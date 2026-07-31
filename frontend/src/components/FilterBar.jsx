@@ -12,7 +12,7 @@ const SORT_OPTIONS = [
   { value: 'random',     label: '🎲 Random' },
 ]
 
-export default function FilterBar({ filters, onChange, friends = [], sort = 'title_asc', onSortChange, onReshuffle }) {
+export default function FilterBar({ filters, onChange, friends = [], sort = 'title_asc', onSortChange, onReshuffle, partsFilter = '', onPartsChange }) {
   const update = (key, val) => onChange(f => ({ ...f, [key]: val }))
   const abcMode = isAbcSearch(filters.q)
 
@@ -58,6 +58,16 @@ export default function FilterBar({ filters, onChange, friends = [], sort = 'tit
         {KEYS.map(k => (
           <option key={k} value={k}>{k}</option>
         ))}
+      </select>
+      <select
+        value={partsFilter}
+        onChange={e => onPartsChange?.(e.target.value)}
+        className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+      >
+        <option value="">All Parts</option>
+        <option value="2">2 parts</option>
+        <option value="3">3 parts</option>
+        <option value="4+">4+ parts</option>
       </select>
       <div className="flex items-center gap-1.5">
         <select
