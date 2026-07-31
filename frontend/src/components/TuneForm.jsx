@@ -19,7 +19,7 @@ K:D
 |:dAA BAA|dAA AGE|FDD EDD|FDD EFG|
 dAA BAA|dAA ABA|GEE FEE|EDD D3:|`
 
-export default function TuneForm({ tune, onSave, onClose }) {
+export default function TuneForm({ tune, onSave, onClose, statusLabels = {} }) {
   const [form, setForm] = useState({
     title: tune?.title ?? '',
     tune_type: tune?.tune_type ?? 'reel',
