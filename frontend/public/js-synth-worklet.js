@@ -1,4 +1,9 @@
-// AudioWorklet wrapper — loads FluidSynth WASM then registers the synthesizer processor.
-// Both scripts are served as static files from public/ (copied by postinstall).
-importScripts('/libfluidsynth.js')
-importScripts('/js-synthesizer.worklet.js')
+// AudioWorklet modules do not support importScripts; use fetch + indirect eval instead.
+// Indirect eval runs in AudioWorkletGlobalScope so var declarations become globals —
+// libfluidsynth.js ends by setting AudioWorkletGlobalScope.wasmModule = Module.
+
+const res = await fetch('/libfluidsynth.js')
+const code = await res.text()
+;(0, eval)(code)
+
+await import('/js-synthesizer.worklet.js')
