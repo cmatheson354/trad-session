@@ -43,6 +43,10 @@ export default function TuneSearch({ onSelect, onPlay, onClose, onManualAdd, ini
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
+  const [research,        setResearch]        = useState(null)
+  const [researchLoading, setResearchLoading] = useState(false)
+  const [researchError,   setResearchError]   = useState('')
+  const [recordings,      setRecordings]      = useState([])
   const [adding,  setAdding]  = useState(null)
   const [added,   setAdded]   = useState(new Set())
   // playingId: which item is currently playing/loading; null = none
@@ -166,6 +170,30 @@ export default function TuneSearch({ onSelect, onPlay, onClose, onManualAdd, ini
     }, 350)
     return () => clearTimeout(t)
   }, [query])
+
+  const handleResearch = async () => {
+    if (!query.trim() || researchLoading) return
+    setResearchLoading(true)
+    setResearchError('')
+    setResearch(null)
+    setRecordings([])
+    try {
+      const data = await api.tuneResearch(query.trim())
+      if (data.error) { setResearchError(data.error); return }
+      setResearch(data)
+      // Fetch recordings for the top result if available
+      if (results.length > 0 && results[0].id) {
+        try {
+          const recs = await api.thesession.recordings(results[0].id)
+          setRecordings(Array.isArray(recs) ? recs : [])
+        } catch (_) {}
+      }
+    } catch (e) {
+      setResearchError(e.message)
+    } finally {
+      setResearchLoading(false)
+    }
+  }
 
   const fetchDetail = async (item) => {
     if (detailCache.current[item.id]) return detailCache.current[item.id]
@@ -316,6 +344,108 @@ export default function TuneSearch({ onSelect, onPlay, onClose, onManualAdd, ini
             </ul>
           )}
         </div>
+
+          {/* Research panel */}
+          {query.length >= 2 && (
+            <div className="border-t border-gray-100 px-6 py-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tune Background</p>
+                {!research && !researchLoading && (
+                  <button
+                    onClick={handleResearch}
+                    className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition-colors font-medium flex items-center gap-1.5"
+                  >
+                    🔬 Research this tune
+                  </button>
+                )}
+                {researchLoading && (
+                  <span className="text-xs text-gray-400 animate-pulse">Researching…</span>
+                )}
+                {research && (
+                  <button onClick={() => { setResearch(null); setRecordings([]) }} className="text-xs text-gray-400 hover:text-gray-600">✕ clear</button>
+                )}
+              </div>
+
+              {researchError && (
+                <p className="text-xs text-red-500">{researchError}</p>
+              )}
+
+              {research && (
+                <div className="space-y-2.5">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                    {research.composer && (
+                      <>
+                        <span className="text-gray-400 font-medium">Composer</span>
+                        <span className="text-gray-800">{research.composer}</span>
+                      </>
+                    )}
+                    {research.origin && (
+                      <>
+                        <span className="text-gray-400 font-medium">Origin</span>
+                        <span className="text-gray-800">{research.origin}</span>
+                      </>
+                    )}
+                    {research.copyright && (
+                      <>
+                        <span className="text-gray-400 font-medium">Copyright</span>
+                        <span className="text-gray-800">{research.copyright}</span>
+                      </>
+                    )}
+                  </div>
+                  {research.notes && (
+                    <p className="text-xs text-gray-600 leading-relaxed">{research.notes}</p>
+                  )}
+                  {research.notable_players?.length > 0 && (
+                    <div>
+                      <p className="text-xs text-gray-400 font-medium mb-1">Notable players</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {research.notable_players.map(p => (
+                          <span key={p} className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-100">{p}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {recordings.length > 0 && (
+                    <div>
+                      <p className="text-xs text-gray-400 font-medium mb-1">Recordings on The Session</p>
+                      <ul className="space-y-1">
+                        {recordings.slice(0, 4).map(r => (
+                          <li key={r.id}>
+                            <a href={r.url} target="_blank" rel="noopener noreferrer"
+                              className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+                              <span>🎵</span>
+                              <span className="font-medium">{r.name}</span>
+                              {r.artist && <span className="text-gray-400">· {r.artist}</span>}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <div className="flex gap-2 pt-1">
+                    <a href={`https://www.youtube.com/results?search_query=${encodeURIComponent(query + ' irish trad')}`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="text-xs bg-red-50 text-red-700 px-2.5 py-1 rounded-lg border border-red-100 hover:bg-red-100 transition-colors">
+                      ▶ YouTube
+                    </a>
+                    <a href={`https://open.spotify.com/search/${encodeURIComponent(query)}`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="text-xs bg-green-50 text-green-700 px-2.5 py-1 rounded-lg border border-green-100 hover:bg-green-100 transition-colors">
+                      Spotify
+                    </a>
+                    <a href={`https://mudcat.org/search.cfm?ky=${encodeURIComponent(query)}`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="text-xs bg-amber-50 text-amber-700 px-2.5 py-1 rounded-lg border border-amber-100 hover:bg-amber-100 transition-colors">
+                      Mudcat
+                    </a>
+                  </div>
+                  {research.cached && (
+                    <p className="text-xs text-gray-300">cached</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
         <div className="px-6 py-3 border-t border-gray-100 shrink-0 flex items-center justify-between gap-3">
           <button

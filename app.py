@@ -1,4 +1,5 @@
 import os
+import json
 import sqlite3
 import secrets
 import uuid
@@ -356,6 +357,18 @@ def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(user_id_a, user_id_b)
             );
+        """)
+    except Exception:
+        pass
+
+    # Tune research cache — keyed on normalised tune name, stores AI response JSON
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tune_research_cache (
+                tune_name TEXT PRIMARY KEY,
+                result_json TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
         """)
     except Exception:
         pass
@@ -1625,6 +1638,99 @@ def remove_friend_from_tune(tune_id, friend_id):
     conn.commit()
     conn.close()
     return '', 204
+
+
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+
+@app.route('/api/tune-research')
+def tune_research():
+    q = request.args.get('q', '').strip()
+    if not q:
+        return jsonify({'error': 'q required'}), 400
+
+    key = _normalize_title(q)
+    conn = get_db()
+
+    cached = conn.execute(
+        'SELECT result_json FROM tune_research_cache WHERE tune_name=?', (key,)
+    ).fetchone()
+    if cached:
+        conn.close()
+        result = json.loads(cached['result_json'])
+        result['cached'] = True
+        return jsonify(result)
+
+    if not ANTHROPIC_API_KEY:
+        conn.close()
+        return jsonify({'error': 'AI research not configured — set ANTHROPIC_API_KEY'}), 503
+
+    prompt = (
+        f'You are an Irish traditional music expert. Research the tune "{q}".\n\n'
+        'Return ONLY a valid JSON object (no markdown, no explanation) with these fields:\n'
+        '- "composer": who composed it, or "Traditional" if anonymous/unknown\n'
+        '- "origin": geographical and historical origin (region, country, era)\n'
+        '- "copyright": "Public domain", "Unknown", or copyright holder if known\n'
+        '- "notes": 1-2 sentences of interesting background, concise\n'
+        '- "notable_players": array of 3-5 musician or band names associated with this tune\n\n'
+        'If uncertain about any field, say so briefly rather than inventing details.'
+    )
+
+    try:
+        resp = http_req.post(
+            'https://api.anthropic.com/v1/messages',
+            headers={
+                'x-api-key': ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01',
+                'content-type': 'application/json',
+            },
+            json={
+                'model': 'claude-haiku-4-5-20251001',
+                'max_tokens': 400,
+                'messages': [{'role': 'user', 'content': prompt}],
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        text = resp.json()['content'][0]['text'].strip()
+        # Strip markdown fences if model wrapped anyway
+        if text.startswith('```'):
+            text = text.split('\n', 1)[1].rsplit('```', 1)[0].strip()
+        result = json.loads(text)
+        result['cached'] = False
+        conn.execute(
+            'INSERT OR REPLACE INTO tune_research_cache (tune_name, result_json) VALUES (?, ?)',
+            (key, json.dumps({k: v for k, v in result.items() if k != 'cached'}))
+        )
+        conn.commit()
+        conn.close()
+        return jsonify(result)
+    except json.JSONDecodeError:
+        conn.close()
+        return jsonify({'error': 'AI returned unparseable response'}), 502
+    except Exception as exc:
+        conn.close()
+        return jsonify({'error': str(exc)}), 502
+
+
+@app.route('/api/thesession/<int:tune_id>/recordings')
+def get_thesession_recordings(tune_id):
+    try:
+        resp = http_req.get(
+            f'https://thesession.org/tunes/{tune_id}/recordings',
+            params={'format': 'json'},
+            headers={'User-Agent': 'trad-session-app/1.0'},
+            timeout=6,
+        )
+        resp.raise_for_status()
+        recordings = resp.json().get('recordings', [])
+        return jsonify([{
+            'id':     r.get('id'),
+            'name':   r.get('name'),
+            'artist': r.get('member', {}).get('name', ''),
+            'url':    f"https://thesession.org/recordings/{r.get('id')}",
+        } for r in recordings[:8]])
+    except Exception:
+        return jsonify([])
 
 
 @app.route('/', defaults={'path': ''})

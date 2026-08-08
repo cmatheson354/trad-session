@@ -11,6 +11,7 @@ services:
       - DATA_DIR=/data
       - SSL_CERT=/certs/trad.crt
       - SSL_KEY=/certs/trad.key
+      - ANTHROPIC_API_KEY
     volumes:
       - trad-data-dev:/data
       - ./certs:/certs:ro

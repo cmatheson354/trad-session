@@ -51,7 +51,10 @@ export const api = {
   thesession: {
     search: (q) => req('GET', `/search?q=${encodeURIComponent(q)}`),
     getTune: (id) => req('GET', `/thesession/${id}`),
-  },  dupes: {
+    recordings: (id) => req('GET', `/thesession/${id}/recordings`),
+  },
+  tuneResearch: (q) => req('GET', `/tune-research?q=${encodeURIComponent(q)}`),
+  dupes: {
     list: (sameKeyIsDupe = true) => req('GET', `/dupes?same_key_is_dupe=${sameKeyIsDupe}`),
     resolve: (idA, idB, action) => req('POST', '/dupes/resolve', { id_a: idA, id_b: idB, action }),
   },
