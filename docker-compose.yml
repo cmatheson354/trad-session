@@ -12,8 +12,10 @@ services:
       - SSL_CERT=/certs/trad.crt
       - SSL_KEY=/certs/trad.key
     volumes:
-      - trad-data:/data
+      - trad-data-dev:/data
       - ./certs:/certs:ro
 
 volumes:
-  trad-data:
+  trad-data-dev:
+    external: true
+    name: flask_trad-data-dev
