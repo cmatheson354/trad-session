@@ -86,7 +86,7 @@ async function _doInit({ onStage, onSfProgress } = {}) {
   await audioCtx.audioWorklet.addModule(WORKLET_URL)
 
   const synth = new AudioWorkletNodeSynthesizer()
-  const node  = synth.createAudioNode(audioCtx)
+  const node  = await synth.createAudioNode(audioCtx)
   node.connect(audioCtx.destination)
 
   onStage?.('soundfont')
