@@ -85,8 +85,13 @@ export function filterByNotes(tunes, query) {
 // Prefers :|  (end-repeat) markers; falls back to || (double-bar) for un-bracketed tunes.
 export function countParts(abc) {
   if (!abc?.trim()) return null
-  const repeats = (abc.match(/:\|/g) || []).length
-  if (repeats > 0) return repeats
+  // Count repeat-close barlines (:|) — each marks end of a part
+  const repeatClose = (abc.match(/:\|/g) || []).length
+  if (repeatClose > 0) return repeatClose
+  // The Session uses ! as part separator
+  const bangSep = (abc.match(/!/g) || []).length
+  if (bangSep > 0) return bangSep + 1
+  // Double barline as fallback
   const doubles = (abc.match(/\|\|/g) || []).length
-  return doubles > 0 ? doubles : null
+  return doubles > 1 ? doubles : null
 }

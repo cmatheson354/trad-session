@@ -1,5 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { api } from '../api.js'
+import { loadAbcjs } from '../abcjsLoader.js'
+import { loadPrefs } from '../constants.js'
+import { stopAll } from '../audioManager.js'
 
 const TYPE_COLORS = {
   reel:       'bg-green-100 text-green-800',
@@ -35,20 +38,119 @@ function normaliseType(t) {
   return (t || 'reel').replace(/\s+/g, '_').toLowerCase()
 }
 
-export default function TuneSearch({ onSelect, onPlay, onClose, onManualAdd }) {
-  const [query,   setQuery]   = useState('')
+export default function TuneSearch({ onSelect, onPlay, onClose, onManualAdd, initialQuery = '' }) {
+  const [query,   setQuery]   = useState(initialQuery)
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
   const [adding,  setAdding]  = useState(null)
   const [added,   setAdded]   = useState(new Set())
-  // Per-item play state: id → 'loading' | 'playing'
-  const [playState, setPlayState]   = useState({})
-  // Cache fetched details to avoid re-fetching
+  // playingId: which item is currently playing/loading; null = none
+  const [playingId,  setPlayingId]  = useState(null)
+  const [playStatus, setPlayStatus] = useState('idle') // 'loading' | 'playing' | 'idle'
+  const synthRef    = useRef(null)
+  const abcjsRef    = useRef(null)
+  const playGenRef  = useRef(0)   // incremented on every play attempt; stale inits bail out
   const detailCache = useRef({})
+  const inputRef    = useRef(null)
 
-  const inputRef = useRef(null)
+  // Load abcjs once
+  useEffect(() => {
+    loadAbcjs().then(lib => { abcjsRef.current = lib })
+  }, [])
+
   useEffect(() => { inputRef.current?.focus() }, [])
+
+  // Stop synth when component unmounts
+  useEffect(() => () => stopSynth(), []) // eslint-disable-line
+
+  const stopSynth = useCallback(() => {
+    playGenRef.current++          // invalidate any in-flight init
+    if (synthRef.current) {
+      try { synthRef.current.stop?.() } catch (_) {}
+      synthRef.current = null
+    }
+    setPlayingId(null)
+    setPlayStatus('idle')
+  }, [])
+
+  const playAbc = useCallback(async (itemId, abc) => {
+    const abcjs = abcjsRef.current
+    if (!abcjs?.synth?.supportsAudio()) {
+      alert('Audio not supported in this browser.')
+      return
+    }
+    // Bump generation — any previous in-flight init will see a stale gen and bail
+    const gen = ++playGenRef.current
+
+    // Stop whatever is currently playing
+    if (synthRef.current) {
+      try { synthRef.current.stop?.() } catch (_) {}
+      synthRef.current = null
+    }
+    stopAll()
+
+    setPlayingId(itemId)
+    setPlayStatus('loading')
+
+    const prefs = loadPrefs()
+    const program = prefs.instrument ?? 73
+    const builtAbc = `%%MIDI program ${program}\n${abc.trim()}`
+
+    // Render into a hidden div
+    const hiddenId = 'tune-search-hidden-notation'
+    let hiddenDiv = document.getElementById(hiddenId)
+    if (!hiddenDiv) {
+      hiddenDiv = document.createElement('div')
+      hiddenDiv.id = hiddenId
+      hiddenDiv.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;overflow:hidden'
+      document.body.appendChild(hiddenDiv)
+    }
+
+    try {
+      const visualObjs = abcjs.renderAbc(hiddenId, builtAbc, { add_classes: false })
+      if (!visualObjs?.length) throw new Error('Could not parse ABC')
+
+      const synth = new abcjs.synth.CreateSynth()
+
+      const msPerMeasure = visualObjs[0].millisecondsPerMeasure?.()
+      await synth.init({
+        visualObj: visualObjs[0],
+        ...(msPerMeasure ? { millisecondsPerMeasure: msPerMeasure } : {}),
+        onEnded: () => {
+          if (playGenRef.current === gen) { synthRef.current = null; setPlayingId(null); setPlayStatus('idle') }
+        },
+      })
+      await synth.prime()
+
+      // Stale check — a newer play was requested while we were initialising
+      if (playGenRef.current !== gen) {
+        try { synth.stop?.() } catch (_) {}
+        return
+      }
+
+      synthRef.current = synth
+      synth.start()
+      setPlayStatus('playing')
+
+      // Duration-based fallback (same pattern as MiniPlayer)
+      if (synth.duration > 0) {
+        setTimeout(() => {
+          if (playGenRef.current === gen && synthRef.current === synth) {
+            synthRef.current = null
+            setPlayingId(null)
+            setPlayStatus('idle')
+          }
+        }, synth.duration * 1000 + 400)
+      }
+    } catch (e) {
+      if (playGenRef.current === gen) {
+        synthRef.current = null
+        setPlayingId(null)
+        setPlayStatus('idle')
+      }
+    }
+  }, [stopSynth])
 
   useEffect(() => {
     if (query.length < 2) { setResults([]); setError(''); return }
@@ -94,18 +196,20 @@ export default function TuneSearch({ onSelect, onPlay, onClose, onManualAdd }) {
   }
 
   const handlePlay = async (item) => {
-    setPlayState(prev => ({ ...prev, [item.id]: 'loading' }))
+    // Clicking same tune while playing → stop
+    if (playingId === item.id && playStatus === 'playing') {
+      stopSynth()
+      return
+    }
     try {
       const detail = await fetchDetail(item)
       if (!detail.abc) {
-        setPlayState(prev => ({ ...prev, [item.id]: null }))
         alert('No ABC notation available for this tune on The Session.')
         return
       }
-      setPlayState(prev => ({ ...prev, [item.id]: 'ready' }))
-      onPlay({ title: item.name, abc: detail.abc })
+      await playAbc(item.id, detail.abc)
     } catch (e) {
-      setPlayState(prev => ({ ...prev, [item.id]: null }))
+      stopSynth()
       alert('Could not load tune: ' + e.message)
     }
   }
@@ -159,18 +263,23 @@ export default function TuneSearch({ onSelect, onPlay, onClose, onManualAdd }) {
               {results.map(item => {
                 const isAdding  = adding === item.id
                 const isAdded   = added.has(item.id)
-                const ps        = playState[item.id]
                 return (
                   <li key={item.id} className="px-6 py-3 flex items-center gap-2 hover:bg-gray-50">
                     {/* Play button */}
                     <button
                       onClick={() => handlePlay(item)}
-                      disabled={ps === 'loading'}
-                      className="w-7 h-7 rounded-full bg-green-700 hover:bg-green-600 text-white flex items-center justify-center shrink-0 transition-colors disabled:opacity-50"
-                      title="Preview"
+                      disabled={playingId === item.id && playStatus === 'loading'}
+                      className={`w-7 h-7 rounded-full text-white flex items-center justify-center shrink-0 transition-colors disabled:opacity-50 ${
+                        playingId === item.id && playStatus === 'playing'
+                          ? 'bg-red-600 hover:bg-red-500'
+                          : 'bg-green-700 hover:bg-green-600'
+                      }`}
+                      title={playingId === item.id && playStatus === 'playing' ? 'Stop' : 'Preview'}
                     >
-                      {ps === 'loading'
+                      {playingId === item.id && playStatus === 'loading'
                         ? <span className="text-xs animate-pulse">…</span>
+                        : playingId === item.id && playStatus === 'playing'
+                        ? <span className="text-xs">■</span>
                         : <span className="text-xs ml-0.5">▶</span>}
                     </button>
 

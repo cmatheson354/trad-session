@@ -13,7 +13,7 @@ export const SPEEDS = [
   { label: '50%',  value: 50 },
   { label: '75%',  value: 75 },
   { label: '100%', value: 100 },
-  { label: '200%', value: 200 },
+  { label: '150%', value: 150 },
 ]
 
 const PREFS_KEY = 'trad-player-prefs'

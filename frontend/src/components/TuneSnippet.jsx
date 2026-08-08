@@ -113,7 +113,7 @@ function SheetSnippet({ snippetAbc, tuneId }) {
 }
 
 export default function TuneSnippet({ tune, notationView = 'sheet' }) {
-  const parsed = parseFirst8(tune.abc_notation, 8)
+  const parsed = parseFirst8(tune.abc_notation, 10)
   if (!parsed) return null
 
   if (notationView === 'abc') {

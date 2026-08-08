@@ -5,12 +5,14 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postinstall": "mkdir -p public && cp node_modules/js-synthesizer/externals/libfluidsynth-2.4.6-with-libsndfile.js public/libfluidsynth.js && cp node_modules/js-synthesizer/dist/js-synthesizer.worklet.js public/"
   },
   "dependencies": {
     "@zxing/browser": "^0.2.1",
     "@zxing/library": "^0.23.0",
     "abcjs": "^6.4.3",
+    "js-synthesizer": "^1.13.0",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

@@ -64,7 +64,7 @@ export default function TuneForm({ tune, onSave, onClose, statusLabels = {} }) {
         className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg max-h-[95vh] sm:max-h-[90vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
-        <div className="bg-green-800 text-white rounded-t-2xl px-6 py-4 flex items-center justify-between">
+        <div className="bg-green-800 text-white rounded-t-2xl px-6 py-4 flex items-center justify-between sticky top-0 z-10">
           <h2 className="text-lg font-bold">{tune ? 'Edit Tune' : 'Add Tune'}</h2>
           <button onClick={onClose} className="text-green-300 hover:text-white text-2xl leading-none">&times;</button>
         </div>

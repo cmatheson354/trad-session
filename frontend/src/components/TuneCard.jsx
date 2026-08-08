@@ -20,6 +20,14 @@ const STATUS_DOT = {
   performance_ready: 'bg-yellow-400',
 }
 
+// Status-based colors for user-friend badges
+const FRIEND_STATUS_COLORS = {
+  want_to_learn:     'bg-red-600 text-white',
+  learning:          'bg-orange-500 text-white',
+  know_it:           'bg-green-600 text-white',
+  performance_ready: 'bg-yellow-500 text-black',
+}
+
 
 
 function daysSince(dateStr) {
@@ -55,16 +63,16 @@ export default function TuneCard({ tune, onClick, notationView = "sheet", status
         </span>
       </div>
 
-      {/* Key + mode */}
+      {/* Key + mode + parts */}
       <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
         {tune.tune_key && (
           <span className="font-mono bg-gray-100 rounded px-1.5 py-0.5 text-xs">{tune.tune_key}</span>
         )}
         {tune.mode && (
           <span className="text-xs text-gray-400 capitalize">{tune.mode}</span>
-          {countParts(tune.abc_notation) && (
-            <span className="text-xs text-gray-400 ml-auto">{countParts(tune.abc_notation)} pt</span>
-          )}
+        )}
+        {hasAbc && countParts(tune.abc_notation) && (
+          <span className="text-xs text-gray-400 ml-auto">{countParts(tune.abc_notation)} pt</span>
         )}
       </div>
 
@@ -99,6 +107,18 @@ export default function TuneCard({ tune, onClick, notationView = "sheet", status
           {tune.friends.length > 10 && (
             <span className="text-xs text-gray-400 px-1 py-0.5">+{tune.friends.length - 10} more</span>
           )}
+        </div>
+      )}
+
+      {/* User-friend badges (status-colored) */}
+      {tune.user_friend_badges?.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {tune.user_friend_badges.map(f => (
+            <span key={f.user_id}
+              className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${FRIEND_STATUS_COLORS[f.status] ?? 'bg-gray-500 text-white'}`}>
+              {f.name}
+            </span>
+          ))}
         </div>
       )}
 

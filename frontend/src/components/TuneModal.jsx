@@ -3,6 +3,7 @@ import { colorFor } from './FriendsModal.jsx'
 import { api } from '../api.js'
 import AbcRenderer from './AbcRenderer.jsx'
 import RecordingPanel from './RecordingPanel.jsx'
+import ChordSuggestions from './ChordSuggestions.jsx'
 
 
 const STATUS_NEXT = {
@@ -53,11 +54,12 @@ const INTERVAL_NAMES = {
   '-9':'↓ Maj 6th', '-10':'↓ min 7th', '-11':'↓ Maj 7th', '-12':'↓ Octave',
 }
 
-export default function TuneModal({ tune, onClose, onEdit, onDelete, onPracticed, notationView = "sheet", instrument, speed, statusLabels = {}, onStartRecording }) {
+export default function TuneModal({ tune, onClose, onEdit, onDelete, onPracticed, notationView = "sheet", instrument, speed, statusLabels = {}, onStartRecording, autoLogPractice = false, autoSeekTo = null }) {
   const [practiceLog, setPracticeLog] = useState([])
   const [logNotes, setLogNotes] = useState('')
   const [logging, setLogging] = useState(false)
   const [showLog, setShowLog] = useState(false)
+  const [autoLogged, setAutoLogged] = useState(false)
   const [transposeBy, setTransposeBy] = useState(0)
   const [showSaveConfirm, setShowSaveConfirm] = useState(false)
   const [savingTranspose, setSavingTranspose] = useState(false)
@@ -72,6 +74,29 @@ export default function TuneModal({ tune, onClose, onEdit, onDelete, onPracticed
     api.tuneFriends.list(tune.id).then(setTuneFriends).catch(console.error)
     api.friends.list().then(setAllFriends).catch(console.error)
   }, [tune.id])
+
+  // Auto-log practice when modal opens in practice mode
+  useEffect(() => {
+    if (!autoLogPractice) return
+    const today = new Date().toISOString().slice(0, 10)
+    // Skip if already practiced today
+    api.practice.list(tune.id).then(async (logs) => {
+      const alreadyToday = logs.some(l => l.practiced_at === today)
+      if (alreadyToday) {
+        setPracticeLog(logs)
+        setAutoLogged(true)
+        return
+      }
+      await api.practice.log(tune.id, { notes: 'Auto-logged via practice mode' })
+      const [updated, newLogs] = await Promise.all([
+        api.tunes.get(tune.id),
+        api.practice.list(tune.id),
+      ])
+      setPracticeLog(newLogs)
+      setAutoLogged(true)
+      onPracticed(updated)
+    }).catch(console.error)
+  }, [tune.id, autoLogPractice]) // eslint-disable-line
 
   const handleLogPractice = async () => {
     setLogging(true)
@@ -126,7 +151,7 @@ export default function TuneModal({ tune, onClose, onEdit, onDelete, onPracticed
         className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-2xl max-h-[95vh] sm:max-h-[92vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
-        <div className="bg-green-800 text-white rounded-t-2xl px-6 py-4 flex items-start justify-between">
+        <div className="bg-green-800 text-white rounded-t-2xl px-6 py-4 flex items-start justify-between sticky top-0 z-10">
           <div>
             <h2 className="text-xl font-bold">{tune.title}</h2>
             <div className="flex items-center gap-2 mt-1">
@@ -186,13 +211,22 @@ export default function TuneModal({ tune, onClose, onEdit, onDelete, onPracticed
             <AbcRenderer
               notation={tune.abc_notation}
               tuneId={tune.id}
+              tuneKey={tune.tune_key}
+              mode={tune.mode}
+              tuneType={tune.tune_type}
               instrument={instrument}
               speed={speed}
               hideSheet={notationView === 'abc'}
               transpose={transposeBy}
+              autoSeekTo={autoSeekTo}
             />
           </div>
 
+
+          {/* Chord Guide */}
+          {(tune.abc_notation || tune.tune_key) && (
+            <ChordSuggestions tune={tune} />
+          )}
 
           {/* Friends */}
           {(

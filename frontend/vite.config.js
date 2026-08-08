@@ -1,3 +1,5 @@
+import { webcrypto } from "crypto"
+if (!globalThis.crypto) globalThis.crypto = webcrypto
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -22,9 +24,10 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // Cache app shell (JS/CSS/HTML) — cache-first
+        // Cache app shell — raise limit to cover libfluidsynth.js (2.37 MB)
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        // Network-first for all API calls so tunes stay fresh when online
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        // Network-first for API so tunes stay fresh when online
         runtimeCaching: [
           {
             urlPattern: /^https?:\/\/[^/]+\/api\//,

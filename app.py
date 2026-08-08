@@ -3,13 +3,15 @@ import sqlite3
 import secrets
 import uuid
 import requests as http_req
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from flask import Flask, jsonify, request, send_from_directory, send_file, abort
+from flask import Flask, jsonify, request, send_from_directory, send_file, abort, session, make_response
 from flask_cors import CORS
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 app = Flask(__name__, static_folder=None)
-CORS(app)
+app.secret_key = os.environ.get('SECRET_KEY', 'trad-dev-secret-change-in-prod')
+CORS(app, supports_credentials=True)
 
 DATA_DIR = os.environ.get('DATA_DIR', 'data')
 DB_PATH = os.path.join(DATA_DIR, 'tunes.db')
@@ -22,6 +24,10 @@ def get_db():
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA foreign_keys = ON')
     return conn
+
+def get_current_user_id():
+    """Return the active user_id from the session cookie (default 1 = Chris)."""
+    return session.get('user_id', 1)
 
 
 def clean_abc(val):
@@ -244,6 +250,28 @@ def init_db():
         );
     """)
     conn.commit()
+    # ── Users table ────────────────────────────────────────────────────────────
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT OR IGNORE INTO users (id, name) VALUES (1, 'Chris');
+        INSERT OR IGNORE INTO users (id, name) VALUES (2, 'Tre');
+    """)
+    # Add user_id to owned tables (migration-safe)
+    for table in ('tunes', 'sets', 'recordings'):
+        try:
+            conn.execute(f'ALTER TABLE {table} ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id)')
+        except Exception:
+            pass
+    # Per-user settings: key namespaced to user
+    try:
+        conn.execute('ALTER TABLE settings ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1')
+    except Exception:
+        pass
+    conn.commit()
     # Normalise any whitespace-only abc_notation left from earlier versions
     conn.execute("UPDATE tunes SET abc_notation = NULL WHERE abc_notation IS NOT NULL AND trim(abc_notation) = ''")
     try:
@@ -318,6 +346,20 @@ def init_db():
     except Exception:
         pass
 
+    # User-to-user friendships
+    try:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS user_friendships (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id_a INTEGER NOT NULL REFERENCES users(id),
+                user_id_b INTEGER NOT NULL REFERENCES users(id),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id_a, user_id_b)
+            );
+        """)
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -326,7 +368,8 @@ def init_db():
 @app.route('/api/share/token', methods=['GET'])
 def get_share_token():
     conn = get_db()
-    row = conn.execute("SELECT value FROM settings WHERE key='share_token'").fetchone()
+    uid = get_current_user_id()
+    row = conn.execute("SELECT value FROM settings WHERE key='share_token' AND user_id=?", (uid,)).fetchone()
     conn.close()
     return jsonify({'token': row['value'] if row else None})
 
@@ -336,13 +379,15 @@ def create_share_token():
     action = data.get('action', 'generate')
     conn = get_db()
     if action == 'revoke':
-        conn.execute("DELETE FROM settings WHERE key='share_token'")
+        uid = get_current_user_id()
+        conn.execute("DELETE FROM settings WHERE key='share_token' AND user_id=?", (uid,))
         conn.commit()
         conn.close()
         return jsonify({'token': None})
     # Save config alongside token
     token = secrets.token_urlsafe(16)
-    conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('share_token', ?)", (token,))
+    uid = get_current_user_id()
+    conn.execute("INSERT OR REPLACE INTO settings (key, value, user_id) VALUES ('share_token', ?, ?)", (token, uid))
     conn.commit()
     conn.close()
     return jsonify({'token': token})
@@ -352,22 +397,154 @@ def share_config():
     conn = get_db()
     if request.method == 'POST':
         data = request.get_json() or {}
+        uid = get_current_user_id()
         for key in ['share_statuses', 'share_label']:
             if key in data:
-                conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                             (key, data[key]))
+                conn.execute("INSERT OR REPLACE INTO settings (key, value, user_id) VALUES (?, ?, ?)",
+                             (key, data[key], uid))
         conn.commit()
         conn.close()
         return jsonify({'ok': True})
-    rows = conn.execute("SELECT key, value FROM settings WHERE key IN ('share_statuses','share_label','share_token')").fetchall()
+    uid = get_current_user_id()
+    rows = conn.execute("SELECT key, value FROM settings WHERE key IN ('share_statuses','share_label','share_token') AND user_id=?", (uid,)).fetchall()
     conn.close()
     cfg = {r['key']: r['value'] for r in rows}
     return jsonify(cfg)
 
+
+# ── User-to-user friendships ──────────────────────────────────────────────────
+
+@app.route('/api/user-friends', methods=['GET'])
+def list_user_friends():
+    uid = get_current_user_id()
+    conn = get_db()
+    rows = conn.execute(
+        '''SELECT u.id, u.name FROM users u
+           JOIN user_friendships uf ON u.id = CASE WHEN uf.user_id_a=? THEN uf.user_id_b ELSE uf.user_id_a END
+           WHERE uf.user_id_a=? OR uf.user_id_b=?
+           ORDER BY u.name''',
+        (uid, uid, uid)
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/friend-connect/<token>', methods=['POST'])
+def friend_connect(token):
+    """Accept a share token from another user and create a mutual friendship."""
+    uid = get_current_user_id()
+    conn = get_db()
+    # Find the user who owns this share token
+    row = conn.execute("SELECT user_id FROM settings WHERE key='share_token' AND value=?", (token,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Invalid or expired link'}), 404
+    other_uid = row['user_id']
+    if other_uid == uid:
+        conn.close()
+        return jsonify({'error': 'Cannot friend yourself'}), 400
+    a, b = min(uid, other_uid), max(uid, other_uid)
+    try:
+        conn.execute('INSERT OR IGNORE INTO user_friendships (user_id_a, user_id_b) VALUES (?,?)', (a, b))
+        conn.commit()
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+    other_user = conn.execute('SELECT id, name FROM users WHERE id=?', (other_uid,)).fetchone()
+    conn.close()
+    return jsonify({'ok': True, 'connected_with': dict(other_user) if other_user else None})
+
+
+@app.route('/api/friend-connect/<token>', methods=['GET'])
+def friend_connect_info(token):
+    """Preview who owns this share token (for the connect prompt)."""
+    uid = get_current_user_id()
+    conn = get_db()
+    row = conn.execute("SELECT user_id FROM settings WHERE key='share_token' AND value=?", (token,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Invalid link'}), 404
+    other_uid = row['user_id']
+    other_user = conn.execute('SELECT id, name FROM users WHERE id=?', (other_uid,)).fetchone()
+    # Check if already friends
+    a, b = min(uid, other_uid), max(uid, other_uid)
+    existing = conn.execute('SELECT id FROM user_friendships WHERE user_id_a=? AND user_id_b=?', (a, b)).fetchone()
+    conn.close()
+    return jsonify({
+        'owner': dict(other_user) if other_user else None,
+        'already_friends': existing is not None,
+        'is_self': other_uid == uid,
+    })
+
+
+@app.route('/api/user-friends/<int:friend_user_id>', methods=['DELETE'])
+def remove_user_friend(friend_user_id):
+    uid = get_current_user_id()
+    a, b = min(uid, friend_user_id), max(uid, friend_user_id)
+    conn = get_db()
+    conn.execute('DELETE FROM user_friendships WHERE user_id_a=? AND user_id_b=?', (a, b))
+    conn.commit()
+    conn.close()
+    return '', 204
+
+
+@app.route('/api/friends-tunes', methods=['GET'])
+def friends_tunes():
+    """Tunes that friends have which the current user doesn't."""
+    uid = get_current_user_id()
+    conn = get_db()
+    # Get all user-friends
+    friend_rows = conn.execute(
+        '''SELECT u.id, u.name FROM users u
+           JOIN user_friendships uf ON u.id = CASE WHEN uf.user_id_a=? THEN uf.user_id_b ELSE uf.user_id_a END
+           WHERE uf.user_id_a=? OR uf.user_id_b=?''',
+        (uid, uid, uid)
+    ).fetchall()
+    if not friend_rows:
+        conn.close()
+        return jsonify([])
+    # My tunes for de-duplication
+    my_tunes = conn.execute('SELECT thesession_id, title FROM tunes WHERE user_id=?', (uid,)).fetchall()
+    my_tsids = {t['thesession_id'] for t in my_tunes if t['thesession_id']}
+    my_titles = {t['title'].lower().strip() for t in my_tunes}
+    # Collect friend tunes not in my list, grouped by identity key
+    result_map = {}  # key -> tune dict with user_friend_badges
+    for fr in friend_rows:
+        fuid = fr['id']
+        fname = fr['name']
+        f_tunes = conn.execute(
+            'SELECT * FROM tunes WHERE user_id=?', (fuid,)
+        ).fetchall()
+        for ft in f_tunes:
+            ft = dict(ft)
+            tsid = ft.get('thesession_id')
+            title_key = ft['title'].lower().strip()
+            # Skip if current user already has this tune
+            if tsid and tsid in my_tsids:
+                continue
+            if title_key in my_titles:
+                continue
+            # Identity key: prefer thesession_id
+            ident = f'tsid:{tsid}' if tsid else f'title:{title_key}'
+            if ident not in result_map:
+                result_map[ident] = dict(ft)
+                result_map[ident]['user_friend_badges'] = []
+                result_map[ident]['friends'] = []
+                # Remove friend-user-specific id so it doesn't conflict
+                result_map[ident]['id'] = f'friend-{ident}'
+            result_map[ident]['user_friend_badges'].append({
+                'user_id': fuid, 'name': fname, 'status': ft['status']
+            })
+    conn.close()
+    tunes = sorted(result_map.values(), key=lambda t: t['title'])
+    return jsonify(tunes)
+
+
 @app.route('/share/<token>')
 def shared_list(token):
     conn = get_db()
-    row = conn.execute("SELECT value FROM settings WHERE key='share_token'").fetchone()
+    uid = get_current_user_id()
+    row = conn.execute("SELECT value FROM settings WHERE key='share_token' AND user_id=?", (uid,)).fetchone()
     if not row or row['value'] != token:
         conn.close()
         abort(404)
@@ -433,6 +610,39 @@ tr.type-header td{{background:#134e2a;color:#4ade80;font-weight:700;font-size:0.
     from flask import Response
     return Response(html, mimetype='text/html')
 
+
+@app.route('/api/users')
+def list_users():
+    conn = get_db()
+    rows = conn.execute('SELECT id, name, created_at FROM users ORDER BY id').fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/me')
+def me():
+    uid = get_current_user_id()
+    conn = get_db()
+    row = conn.execute('SELECT id, name FROM users WHERE id = ?', (uid,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'id': 1, 'name': 'Chris'})
+    return jsonify(dict(row))
+
+@app.route('/api/switch-user', methods=['POST'])
+def switch_user():
+    data = request.get_json() or {}
+    uid = data.get('user_id')
+    if not uid:
+        return jsonify({'error': 'user_id required'}), 400
+    conn = get_db()
+    row = conn.execute('SELECT id, name FROM users WHERE id = ?', (uid,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'User not found'}), 404
+    session['user_id'] = row['id']
+    resp = make_response(jsonify({'id': row['id'], 'name': row['name']}))
+    return resp
+
 @app.route('/health')
 def health():
     return jsonify({'status': 'ok'})
@@ -441,9 +651,10 @@ def health():
 @app.route('/api/stats')
 def stats():
     conn = get_db()
-    by_status = conn.execute('SELECT status, COUNT(*) as count FROM tunes GROUP BY status').fetchall()
-    by_type = conn.execute('SELECT tune_type, COUNT(*) as count FROM tunes GROUP BY tune_type').fetchall()
-    total = conn.execute('SELECT COUNT(*) as count FROM tunes').fetchone()
+    uid = get_current_user_id()
+    by_status = conn.execute('SELECT status, COUNT(*) as count FROM tunes WHERE user_id=? GROUP BY status', (uid,)).fetchall()
+    by_type = conn.execute('SELECT tune_type, COUNT(*) as count FROM tunes WHERE user_id=? GROUP BY tune_type', (uid,)).fetchall()
+    total = conn.execute('SELECT COUNT(*) as count FROM tunes WHERE user_id=?', (uid,)).fetchone()
     conn.close()
     return jsonify({
         'total': total['count'],
@@ -454,14 +665,36 @@ def stats():
 
 @app.route('/api/tunes', methods=['GET'])
 def list_tunes():
+    uid = get_current_user_id()
     status = request.args.get('status')
     tune_type = request.args.get('type')
     key = request.args.get('key')
     search = request.args.get('q')
-    friend_id = request.args.get('friend_id')
+    friend_id = request.args.get('friend_id')        # old manual friend filter
+    user_friend_id = request.args.get('user_friend_id')  # user-to-user friend filter
     if friend_id:
-        query = 'SELECT t.* FROM tunes t JOIN tune_friends tf ON tf.tune_id = t.id WHERE tf.friend_id = ?'
-        params = [friend_id]
+        query = 'SELECT t.* FROM tunes t JOIN tune_friends tf ON tf.tune_id = t.id WHERE tf.friend_id = ? AND t.user_id = ?'
+        params = [friend_id, uid]
+        if status:
+            query += ' AND t.status = ?'; params.append(status)
+        if tune_type:
+            query += ' AND t.tune_type = ?'; params.append(tune_type)
+        if key:
+            query += ' AND t.tune_key = ?'; params.append(key)
+        if search:
+            query += ' AND t.title LIKE ?'; params.append(f'%{search}%')
+        query += ' ORDER BY t.title ASC'
+    elif user_friend_id:
+        # Filter to tunes current user shares with specified friend user
+        query = '''SELECT DISTINCT t.* FROM tunes t
+            WHERE t.user_id = ?
+            AND (
+                (t.thesession_id IS NOT NULL AND t.thesession_id IN
+                    (SELECT thesession_id FROM tunes WHERE user_id=? AND thesession_id IS NOT NULL))
+                OR (lower(trim(t.title)) IN
+                    (SELECT lower(trim(title)) FROM tunes WHERE user_id=?))
+            )'''
+        params = [uid, int(user_friend_id), int(user_friend_id)]
         if status:
             query += ' AND t.status = ?'; params.append(status)
         if tune_type:
@@ -472,8 +705,8 @@ def list_tunes():
             query += ' AND t.title LIKE ?'; params.append(f'%{search}%')
         query += ' ORDER BY t.title ASC'
     else:
-        query = 'SELECT * FROM tunes WHERE 1=1'
-        params = []
+        query = 'SELECT * FROM tunes WHERE user_id = ?'
+        params = [uid]
         if status:
             query += ' AND status = ?'; params.append(status)
         if tune_type:
@@ -489,6 +722,7 @@ def list_tunes():
     if tunes_list:
         tune_ids = [t['id'] for t in tunes_list]
         placeholders = ','.join('?' * len(tune_ids))
+        # Old manual friend badges
         friend_rows = conn.execute(
             f'SELECT tf.tune_id, f.id, f.name, f.color FROM tune_friends tf '
             f'JOIN friends f ON f.id=tf.friend_id WHERE tf.tune_id IN ({placeholders}) ORDER BY f.name',
@@ -501,6 +735,37 @@ def list_tunes():
             )
         for t in tunes_list:
             t['friends'] = friends_by_tune.get(t['id'], [])
+
+        # User-friend badges: show linked users' status on same tunes
+        user_friend_rows = conn.execute(
+            '''SELECT u.id as friend_user_id, u.name as friend_name
+               FROM user_friendships uf
+               JOIN users u ON u.id = CASE WHEN uf.user_id_a=? THEN uf.user_id_b ELSE uf.user_id_a END
+               WHERE uf.user_id_a=? OR uf.user_id_b=?''',
+            (uid, uid, uid)
+        ).fetchall()
+        # Build lookup: for each friend user, their tunes keyed by thesession_id and lower(title)
+        uf_badges_by_tune = {t['id']: [] for t in tunes_list}
+        for fr in user_friend_rows:
+            fuid = fr['friend_user_id']
+            fname = fr['friend_name']
+            f_tunes = conn.execute(
+                'SELECT thesession_id, title, status FROM tunes WHERE user_id=?', (fuid,)
+            ).fetchall()
+            f_by_tsid = {ft['thesession_id']: ft['status'] for ft in f_tunes if ft['thesession_id']}
+            f_by_title = {ft['title'].lower().strip(): ft['status'] for ft in f_tunes}
+            for t in tunes_list:
+                matched_status = None
+                if t.get('thesession_id') and t['thesession_id'] in f_by_tsid:
+                    matched_status = f_by_tsid[t['thesession_id']]
+                elif t['title'].lower().strip() in f_by_title:
+                    matched_status = f_by_title[t['title'].lower().strip()]
+                if matched_status:
+                    uf_badges_by_tune[t['id']].append({
+                        'user_id': fuid, 'name': fname, 'status': matched_status
+                    })
+        for t in tunes_list:
+            t['user_friend_badges'] = uf_badges_by_tune.get(t['id'], [])
     conn.close()
     return jsonify(tunes_list)
 
@@ -510,12 +775,13 @@ def create_tune():
     data = request.get_json()
     if not data or not data.get('title'):
         abort(400)
+    uid = get_current_user_id()
     conn = get_db()
     cur = conn.execute(
-        'INSERT INTO tunes (title, tune_type, tune_key, mode, abc_notation, thesession_id, status, notes, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO tunes (title, tune_type, tune_key, mode, abc_notation, thesession_id, status, notes, source, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         (data['title'], data.get('tune_type', 'reel'), data.get('tune_key'),
          data.get('mode'), clean_abc(data.get('abc_notation')), data.get('thesession_id'),
-         data.get('status', 'want_to_learn'), data.get('notes'), data.get('source'))
+         data.get('status', 'want_to_learn'), data.get('notes'), data.get('source'), uid)
     )
     conn.commit()
     tune = conn.execute('SELECT * FROM tunes WHERE id = ?', (cur.lastrowid,)).fetchone()
@@ -873,6 +1139,37 @@ def delete_set(set_id):
     conn.commit()
     return '', 204
 
+@app.route('/api/curated/search')
+def search_curated():
+    """Search the local curated tune library (TheSession canonical settings, ranked by tunebooks)."""
+    q = request.args.get('q', '').strip()
+    tune_type = request.args.get('type', '').strip()
+    if len(q) < 2:
+        return jsonify([])
+    conn = get_db()
+    params = [f'%{q}%']
+    query = 'SELECT tune_id, name, type, mode, tunebooks, setting_id, abc FROM curated_tunes WHERE name LIKE ? COLLATE NOCASE'
+    if tune_type:
+        query += ' AND type = ?'
+        params.append(tune_type.replace('_', ' '))
+    query += ' ORDER BY tunebooks DESC LIMIT 30'
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/curated/<int:tune_id>')
+def get_curated_tune(tune_id):
+    """Get a specific curated tune's full details including ABC."""
+    conn = get_db()
+    row = conn.execute('SELECT * FROM curated_tunes WHERE tune_id = ?', (tune_id,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    d = dict(row)
+    # Parse mode into key + mode parts (e.g. "Dmajor" → key=D, mode=major)
+    mode_str = d.get('mode', '')
+    return jsonify(d)
+
 @app.route('/api/search')
 def search_thesession():
     q = request.args.get('q', '').strip()
@@ -887,6 +1184,36 @@ def search_thesession():
         )
         resp.raise_for_status()
         items = resp.json().get('tunes', [])
+
+        # Enrich results with tunebooks count (parallel fetch, best-effort)
+        def fetch_tunebooks(item):
+            try:
+                r = http_req.get(
+                    f"https://thesession.org/tunes/{item['id']}",
+                    params={'format': 'json'},
+                    headers={'User-Agent': 'trad-session-app/1.0'},
+                    timeout=4,
+                )
+                if r.ok:
+                    d = r.json()
+                    return item['id'], d.get('tunebooks', 0), len(d.get('settings', []))
+            except Exception:
+                pass
+            return item['id'], 0, 0
+
+        enriched = {i['id']: {'tunebooks': 0, 'settings_count': 0} for i in items}
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            futures = {ex.submit(fetch_tunebooks, i): i for i in items}
+            for fut in as_completed(futures):
+                tid, tb, sc = fut.result()
+                enriched[tid] = {'tunebooks': tb, 'settings_count': sc}
+
+        for item in items:
+            item['tunebooks'] = enriched[item['id']]['tunebooks']
+            item['settings_count'] = enriched[item['id']]['settings_count']
+
+        # Sort by tunebooks descending so most popular tunes surface first
+        items.sort(key=lambda x: x.get('tunebooks', 0), reverse=True)
         return jsonify(items)
     except Exception as exc:
         return jsonify({'error': str(exc)}), 502
@@ -904,15 +1231,28 @@ def get_thesession_tune(tune_id):
         resp.raise_for_status()
         data = resp.json()
         settings = data.get('settings', [])
-        first = settings[0] if settings else {}
-        abc = clean_abc(first.get('abc', '').replace('\r\n', '\n'))
+        # Return all settings so frontend can offer a picker
+        cleaned_settings = []
+        for s in settings:
+            abc = clean_abc(s.get('abc', '').replace('\r\n', '\n'))
+            if abc:
+                cleaned_settings.append({
+                    'id': s.get('id'),
+                    'key': s.get('key', ''),
+                    'abc': abc,
+                    'date': s.get('date', ''),
+                    'member': s.get('member', {}).get('name', 'unknown'),
+                })
+        first = cleaned_settings[0] if cleaned_settings else {}
         return jsonify({
             'id': data.get('id'),
             'name': data.get('name'),
             'type': data.get('type'),
+            'tunebooks': data.get('tunebooks', 0),
             'mode': first.get('key', ''),
-            'abc': abc,
-            'settings_count': len(settings),
+            'abc': first.get('abc', ''),
+            'settings': cleaned_settings,
+            'settings_count': len(cleaned_settings),
         })
     except Exception as exc:
         return jsonify({'error': str(exc)}), 502

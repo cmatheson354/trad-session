@@ -35,6 +35,10 @@ export default function ShareModal({ onClose, statusLabels }) {
     ? `${window.location.protocol}//${window.location.host}/share/${token}`
     : null
 
+  const friendConnectUrl = token
+    ? `${window.location.protocol}//${window.location.host}/?connect=${token}`
+    : null
+
   const generate = async () => {
     setLoading(true)
     await api.share.saveConfig({ share_label: label, share_statuses: statuses.join(',') })
@@ -58,7 +62,7 @@ export default function ShareModal({ onClose, statusLabels }) {
   const copy = () => {
     if (!shareUrl) return
     navigator.clipboard.writeText(shareUrl)
-    setCopied(true)
+    setCopied('list')
     setTimeout(() => setCopied(false), 2000)
   }
 
@@ -120,12 +124,26 @@ export default function ShareModal({ onClose, statusLabels }) {
                       className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-emerald-300 font-mono truncate"/>
                     <button onClick={copy}
                       className={`px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex-shrink-0 ${
-                        copied ? 'bg-emerald-700' : 'bg-gray-700 hover:bg-gray-600'
+                        copied === 'list' ? 'bg-emerald-700' : 'bg-gray-700 hover:bg-gray-600'
                       }`}>
-                      {copied ? '✓ Copied' : 'Copy'}
+                      {copied === 'list' ? '✓ Copied' : 'Copy'}
                     </button>
                   </div>
                   <p className="text-xs text-gray-500">Anyone with this link can view your tune list (read-only). No login required.</p>
+
+                  {/* Friend connect link */}
+                  <div className="mt-3 p-3 rounded-lg bg-gray-800 border border-emerald-700">
+                    <p className="text-xs font-semibold text-emerald-400 mb-1.5">👥 Friend Connect Link</p>
+                    <div className="flex items-center gap-2">
+                      <input readOnly value={friendConnectUrl}
+                        className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-xs text-emerald-300 font-mono truncate"/>
+                      <button onClick={() => { navigator.clipboard.writeText(friendConnectUrl); setCopied('friend'); setTimeout(() => setCopied(false), 2000) }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex-shrink-0 transition-colors ${copied === 'friend' ? 'bg-emerald-700' : 'bg-gray-700 hover:bg-gray-600'}`}>
+                        {copied === 'friend' ? '✓' : 'Copy'}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Share this with another Trad Session user to connect as friends and see each other's progress.</p>
+                  </div>
 
                   <div className="flex gap-2 pt-1">
                     <button onClick={async () => { await save(); await generate() }}

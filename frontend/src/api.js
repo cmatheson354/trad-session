@@ -3,6 +3,7 @@ const BASE = '/api'
 async function req(method, path, body) {
   const res = await fetch(`${BASE}${path}`, {
     method,
+    credentials: 'include',
     headers: body ? { 'Content-Type': 'application/json' } : {},
     body: body ? JSON.stringify(body) : undefined,
   })
@@ -63,6 +64,18 @@ export const api = {
   },
 }
 
+// User-to-user friendships
+api.userFriends = {
+  list: () => req('GET', '/user-friends'),
+  remove: (id) => req('DELETE', `/user-friends/${id}`),
+  connectInfo: (token) => req('GET', `/friend-connect/${token}`),
+  connect: (token) => req('POST', `/friend-connect/${token}`),
+}
+
+api.friendsTunes = {
+  list: () => req('GET', '/friends-tunes'),
+}
+
 // Extend api with pairing namespace
 api.pair = {
   me: () => req('GET', '/pair/me'),
@@ -90,4 +103,16 @@ api.tuneFriends = {
   add: (tuneId, friendId, addedVia = 'manual') =>
     req('POST', '/tunes/' + tuneId + '/friends', { friend_id: friendId, added_via: addedVia }),
   remove: (tuneId, friendId) => req('DELETE', `/tunes/${tuneId}/friends/${friendId}`),
+}
+api.users = {
+  list: () => req('GET', '/users'),
+  me:   () => req('GET', '/me'),
+  switchUser: (userId) => req('POST', '/switch-user', { user_id: userId }),
+}
+api.curated = {
+  search: (q, type) => {
+    const qs = new URLSearchParams({ q, ...(type ? { type } : {}) }).toString()
+    return req('GET', `/curated/search?${qs}`)
+  },
+  get: (id) => req('GET', `/curated/${id}`),
 }

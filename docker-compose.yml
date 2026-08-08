@@ -5,17 +5,15 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "18010:18010"
+      - "18011:18011"
     environment:
-      - PORT=18010
+      - PORT=18011
       - DATA_DIR=/data
-      # Uncomment to enable HTTPS (required for mic features):
-      # - TLS_CERT=/certs/cert.pem
-      # - TLS_KEY=/certs/key.pem
+      - SSL_CERT=/certs/trad.crt
+      - SSL_KEY=/certs/trad.key
     volumes:
       - trad-data:/data
-      # Uncomment and mount your certs for HTTPS:
-      # - ./certs:/certs:ro
+      - ./certs:/certs:ro
 
 volumes:
   trad-data:

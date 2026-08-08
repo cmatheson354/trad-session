@@ -19,17 +19,31 @@ import FloatingRecorder from './components/FloatingRecorder.jsx'
 import DupeReviewModal from './components/DupeReviewModal.jsx'
 import Tuner from './components/Tuner.jsx'
 import ShareModal from './components/ShareModal.jsx'
+import FriendConnectModal from './components/FriendConnectModal.jsx'
 import SessionMatcher from './components/SessionMatcher.jsx'
 import PairSwipe from './components/PairSwipe.jsx'
 import PairInvite from './components/PairInvite.jsx'
 import FriendsModal from './components/FriendsModal.jsx'
+import UserPicker from './components/UserPicker.jsx'
+import SoundUpgradeButton from './components/SoundUpgradeButton.jsx'
+import PlayerDrawer from './components/PlayerDrawer.jsx'
+import ToolsDrawer from './components/ToolsDrawer.jsx'
+import FriendsDrawer from './components/FriendsDrawer.jsx'
+import AddDrawer from './components/AddDrawer.jsx'
 
 const CACHE_KEY = 'trad-tunes-cache'
 
 export default function App() {
   const [tunes,           setTunes]          = useState([])
   const [stats,           setStats]          = useState(null)
-  const [filters,         setFilters]        = useState({ q: '', status: '', type: '', key: '', friend_id: '' })
+  // Current user — null means not yet picked (shows UserPicker)
+  const [currentUser,     setCurrentUser]    = useState(null)
+  const [users,           setUsers]          = useState([])
+  const [showUserPicker,  setShowUserPicker] = useState(false)
+  const [filters,         setFilters]        = useState({ q: '', status: '', type: '', key: '', friend_id: '', user_friend_id: '' })
+  // searchQ: live input value (updates on every keystroke)
+  // filters.q: debounced — only updates after 500ms pause or Enter
+  const [searchQ,         setSearchQ]        = useState('')
   const [selectedTune,    setSelectedTune]   = useState(null)
   const [showForm,        setShowForm]       = useState(false)
   const [showSearch,      setShowSearch]     = useState(false)
@@ -39,6 +53,7 @@ export default function App() {
   const [loading,         setLoading]        = useState(true)
   const [isOffline,       setIsOffline]      = useState(false)
   const [miniPlayer,      setMiniPlayer]     = useState(null)
+  const handoffAtRef = useRef(null)   // { elapsed, duration } for mode-2 handoff
   const [showListMenu,    setShowListMenu]   = useState(false)
   const [showImport,      setShowImport]     = useState(false)
   const [showExport,      setShowExport]     = useState(false)
@@ -52,11 +67,29 @@ export default function App() {
   const [showPairInvite, setShowPairInvite]  = useState(false)
   const [showFriends,    setShowFriends]     = useState(false)
   const [friends,        setFriends]         = useState([])
+  const [userFriends,    setUserFriends]     = useState([])
+  const [friendsTunes,   setFriendsTunes]    = useState([])
+  const [connectToken,   setConnectToken]    = useState(null)  // ?connect= URL param
+  const [showPlayerDrawer,  setShowPlayerDrawer]  = useState(false)
+  const [showToolsDrawer,   setShowToolsDrawer]   = useState(false)
+  const [showFriendsDrawer, setShowFriendsDrawer] = useState(false)
+  const [showAddDrawer,     setShowAddDrawer]     = useState(false)
+  const [addDrawerTitle,    setAddDrawerTitle]    = useState('')
+  const [addSearchQuery,    setAddSearchQuery]    = useState('')
   const [sort,           setSort]            = useState('title_asc')
   const [shuffleKey,     setShuffleKey]      = useState(0)
   const [partsFilter,    setPartsFilter]     = useState('')
   const [sameKeyIsDupe,   setSameKeyIsDupe]   = useState(() => (loadDupePrefs().sameKeyIsDupe ?? true))
   const [tapMode,         setTapMode]        = useState(false)
+  const [practiceMode,    setPracticeMode]    = useState(() => localStorage.getItem('trad-practice-mode') === 'true')
+  const CLICK_MODES = ['snippet', 'full', 'details']
+  const CLICK_MODE_LABELS = { snippet: '🎵 Snippet', full: '🎵 Full', details: '📋 Details' }
+  const [clickMode, setClickMode] = useState(() => localStorage.getItem('trad-click-mode') ?? 'snippet')
+  const cycleClickMode = () => setClickMode(m => {
+    const next = CLICK_MODES[(CLICK_MODES.indexOf(m) + 1) % CLICK_MODES.length]
+    localStorage.setItem('trad-click-mode', next)
+    return next
+  })
   const [statusLabels,    setStatusLabels]   = useState(() => loadStatusLabels())
   const [viewMode,        setViewMode]       = useState('tunes') // 'tunes' | 'sets'
   const [notationView,    setNotationView]   = useState(
@@ -123,7 +156,26 @@ export default function App() {
   }
   const speedLabel = SPEEDS.find(s => s.value === speed)?.label ?? '100%'
 
+  const pickInstrument = (program) => {
+    const prefs = JSON.parse(localStorage.getItem('trad-player-prefs') || '{}')
+    localStorage.setItem('trad-player-prefs', JSON.stringify({ ...prefs, instrument: program }))
+    setInstrument(program)
+  }
+  const pickSpeed = (val) => {
+    const prefs = JSON.parse(localStorage.getItem('trad-player-prefs') || '{}')
+    localStorage.setItem('trad-player-prefs', JSON.stringify({ ...prefs, speed: val }))
+    setSpeed(val)
+  }
+
   const noFiltersActive = !filters.q && !filters.status && !filters.type && !filters.key && !filters.friend_id
+
+  // Debounce text search: commit searchQ → filters.q after 500ms idle
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFilters(f => ({ ...f, q: searchQ }))
+    }, 500)
+    return () => clearTimeout(t)
+  }, [searchQ])
 
   const filteredByParts = useMemo(() => {
     if (!partsFilter) return tunes
@@ -180,6 +232,32 @@ export default function App() {
   const loadStats = useCallback(async () => {
     try { setStats(await api.stats()) }
     catch (e) { console.error('Failed to load stats', e) }
+  }, [])
+
+  useEffect(() => {
+    // Bootstrap user list + current user from server
+    Promise.all([api.users.list(), api.users.me()]).then(([ul, me]) => {
+      setUsers(ul)
+      if (me && me.id) {
+        setCurrentUser(me)
+      }
+      // if server has no user set (null/error), show picker
+    }).catch(() => {
+      // Couldn't reach /api/users — assume single-user mode, don't block
+      setCurrentUser({ id: 1, name: 'Chris' })
+    })
+    // Load user-to-user friends
+    api.userFriends.list().then(setUserFriends).catch(() => {})
+    // Load friends' tunes (tunes friends have that I don't)
+    api.friendsTunes.list().then(setFriendsTunes).catch(() => {})
+    // Check for ?connect=<token> in URL for friend connect flow
+    const params = new URLSearchParams(window.location.search)
+    const ct = params.get('connect')
+    if (ct) {
+      setConnectToken(ct)
+      // Clean URL without reload
+      window.history.replaceState({}, '', window.location.pathname)
+    }
   }, [])
 
   useEffect(() => {
@@ -251,21 +329,42 @@ export default function App() {
       loadStats()
       return
     }
+
+    // Mode: details → always open immediately
+    if (clickMode === 'details') {
+      handoffAtRef.current = null
+      setMiniPlayer(null)
+      setSelectedTune(tune)
+      return
+    }
+
     const now = Date.now()
     const prev = lastCardClick.current
-    if (prev.id === tune.id && now - prev.time < 3000) {
-      // Second click (or double-click) within 3 s → open details
+    const isSecondClick = prev.id === tune.id && now - prev.time < 3000
+
+    if (isSecondClick) {
+      // Second click → open detail modal, triggering handoff if mode=full and playing
       lastCardClick.current = { id: null, time: 0 }
       setSelectedTune(tune)
+      // MiniPlayer unmount will call onHandoff → handoffAtRef will be set before TuneModal renders
+      setMiniPlayer(null)
     } else {
-      // First click → play snippet
       lastCardClick.current = { id: tune.id, time: now }
-      if (tune.abc_notation?.trim()) {
-        const parsed = parseFirst8(tune.abc_notation, 8)
-        const snippetAbc = parsed
-          ? buildSnippetAbc(parsed.bodySlice, tune.tune_type, tune.tune_key, tune.mode)
-          : tune.abc_notation
-        handleMiniPlay({ ...tune, abc_notation: snippetAbc, _isSnippet: true })
+      handoffAtRef.current = null
+      if (clickMode === 'snippet') {
+        if (tune.abc_notation?.trim()) {
+          const parsed = parseFirst8(tune.abc_notation, 10)
+          const snippetAbc = parsed
+            ? buildSnippetAbc(parsed.bodySlice, tune.tune_type, tune.tune_key, tune.mode)
+            : tune.abc_notation
+          handleMiniPlay({ ...tune, abc_notation: snippetAbc, _isSnippet: true })
+        }
+      } else {
+        // mode = 'full' — play entire tune (wrap with headers so key/meter are correct)
+        if (tune.abc_notation?.trim()) {
+          const fullAbc = buildSnippetAbc(tune.abc_notation, tune.tune_type, tune.tune_key, tune.mode)
+          handleMiniPlay({ ...tune, abc_notation: fullAbc, _isSnippet: false })
+        }
       }
     }
   }
@@ -286,6 +385,18 @@ export default function App() {
     loadStats()
   }
 
+  const handleQuickAdd = async (title) => {
+    try {
+      const created = await api.tunes.create({ title })
+      setTunes(ts => [...ts, created].sort((a, b) => a.title.localeCompare(b.title)))
+      loadStats()
+      if (created.potential_dupes && created.potential_dupes.length > 0) {
+        setDupesToast({ count: created.potential_dupes.length, tuneTitle: created.title })
+        setTimeout(() => setDupesToast(null), 8000)
+      }
+    } catch (e) { console.error('Quick add failed', e) }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-green-800 text-white shadow-lg">
@@ -300,6 +411,16 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-1.5 sm:gap-2">
+              {currentUser && (
+                <button
+                  onClick={() => setShowUserPicker(true)}
+                  title="Switch user"
+                  className="text-xs font-medium px-2.5 py-1.5 rounded-full bg-green-700 border border-green-500 hover:bg-green-600 text-green-100 flex items-center gap-1.5 transition-colors"
+                >
+                  <span>{currentUser.name === 'Chris' ? '🪈' : currentUser.name === 'Tre' ? '🎸' : '👤'}</span>
+                  <span className="hidden sm:inline">{currentUser.name}</span>
+                </button>
+              )}
               <button
                 onClick={() => setShowSearch(true)}
                 className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 sm:px-3 py-2 rounded-lg transition-colors text-sm flex items-center gap-1"
@@ -325,6 +446,38 @@ export default function App() {
               title="Cycle playback speed"
             >
               ⏩ {speedLabel}
+            </button>
+            <button
+              onClick={cycleClickMode}
+              className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
+              title="Cycle card click mode: Snippet → Full → Details"
+            >
+              {CLICK_MODE_LABELS[clickMode]}
+            </button>
+            {/* Sound quality picker — sits right next to speed */}
+            <div className="text-green-300">
+              <SoundUpgradeButton />
+            </div>
+            <button
+              onClick={() => setShowPlayerDrawer(true)}
+              className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
+              title="Player settings"
+            >
+              🎛
+            </button>
+            <button
+              onClick={() => setShowFriendsDrawer(true)}
+              className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
+              title="Friends &amp; people"
+            >
+              👥
+            </button>
+            <button
+              onClick={() => setShowToolsDrawer(true)}
+              className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
+              title="Tools"
+            >
+              🛠
             </button>
             <button
               onClick={toggleNotationView}
@@ -406,6 +559,12 @@ export default function App() {
                 <ListMenu
                   tapMode={tapMode}
                   onToggleTapMode={() => setTapMode(v => !v)}
+                  practiceMode={practiceMode}
+                  onTogglePracticeMode={() => setPracticeMode(v => {
+                    const next = !v
+                    localStorage.setItem('trad-practice-mode', next)
+                    return next
+                  })}
                   onSets={() => setViewMode('sets')}
                   onImport={() => setShowImport(true)}
                   onExport={() => setShowExport(true)}
@@ -424,6 +583,11 @@ export default function App() {
           👆 Tap mode — tap any card to cycle its learning level. Tap 📋 List to turn off.
         </div>
       )}
+      {practiceMode && (
+        <div className="bg-emerald-600 text-white text-center text-xs font-semibold py-1.5 px-4">
+          🎵 Practice mode — opening a tune automatically logs it as practiced. Tap 📋 List to turn off.
+        </div>
+      )}
       {isOffline && (
         <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-xs text-center py-1.5 px-4">
           Offline — showing cached tunes
@@ -437,7 +601,26 @@ export default function App() {
             onStatusClick={s => setFilters(f => ({ ...f, status: f.status === s ? '' : s }))}
           />
         )}
-        <FilterBar filters={filters} onChange={setFilters} friends={friends} sort={sort} onSortChange={setSort} onReshuffle={() => setShuffleKey(k => k + 1)} partsFilter={partsFilter} onPartsChange={setPartsFilter} />
+        <FilterBar
+          filters={filters}
+          onChange={setFilters}
+          searchQ={searchQ}
+          onSearchChange={(val) => {
+            setSearchQ(val)
+            // Instant clear when emptied
+            if (!val) setFilters(f => ({ ...f, q: '' }))
+          }}
+          onSearchCommit={() => setFilters(f => ({ ...f, q: searchQ }))}
+          friends={friends}
+          userFriends={userFriends}
+          sort={sort}
+          onSortChange={setSort}
+          onReshuffle={() => setShuffleKey(k => k + 1)}
+          partsFilter={partsFilter}
+          onPartsChange={setPartsFilter}
+          tuneCount={tunes.length}
+          onAddNew={(title) => { setAddDrawerTitle(title); setShowAddDrawer(true) }}
+        />
 
         {viewMode === 'sets' ? (
           <SetsView allTunes={tunes} onPlaySet={handlePlaySet} />
@@ -458,14 +641,25 @@ export default function App() {
             </p>
           </div>
         ) : (
-          <TuneGrid tunes={sortedTunes} onSelect={handleCardClick} notationView={notationView} statusLabels={statusLabels} tapMode={tapMode} />
+          <>
+            <TuneGrid tunes={sortedTunes} onSelect={handleCardClick} notationView={notationView} statusLabels={statusLabels} tapMode={tapMode} />
+            {friendsTunes.length > 0 && !filters.status && !filters.user_friend_id && (
+              <div className="mt-6">
+                <div className="flex items-center gap-2 mb-3 px-1">
+                  <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wide">👥 Friends&apos; Tunes</h2>
+                  <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{friendsTunes.length}</span>
+                </div>
+                <TuneGrid tunes={friendsTunes} onSelect={(tune) => setSelectedTune(tune)} notationView={notationView} statusLabels={statusLabels} tapMode={false} />
+              </div>
+            )}
+          </>
         )}
       </main>
 
       {selectedTune && (
         <TuneModal
           tune={selectedTune}
-          onClose={() => setSelectedTune(null)}
+          onClose={() => { setSelectedTune(null); handoffAtRef.current = null }}
           onEdit={handleEdit}
           onDelete={handleDelete}
           onPracticed={handlePracticed}
@@ -474,6 +668,8 @@ export default function App() {
           speed={speed}
           statusLabels={statusLabels}
           onStartRecording={setRecorderTarget}
+          autoLogPractice={practiceMode}
+          autoSeekTo={handoffAtRef.current}
         />
       )}
 
@@ -481,8 +677,19 @@ export default function App() {
         <TuneSearch
           onSelect={handleSearchSelect}
           onPlay={handleMiniPlay}
-          onClose={() => setShowSearch(false)}
-          onManualAdd={() => { setShowSearch(false); setEditingTune(null); setPrefillData(null); setShowForm(true) }}
+          onClose={() => { setShowSearch(false); setAddSearchQuery('') }}
+          onManualAdd={() => { setShowSearch(false); setAddSearchQuery(''); setEditingTune(null); setPrefillData(null); setShowForm(true) }}
+          initialQuery={addSearchQuery}
+        />
+      )}
+
+      {showAddDrawer && (
+        <AddDrawer
+          title={addDrawerTitle}
+          onClose={() => setShowAddDrawer(false)}
+          onSearch={() => { setAddSearchQuery(addDrawerTitle); setShowSearch(true) }}
+          onQuickAdd={() => handleQuickAdd(addDrawerTitle)}
+          onManual={() => { setEditingTune(null); setPrefillData({ title: addDrawerTitle }); setShowForm(true) }}
         />
       )}
 
@@ -534,6 +741,9 @@ export default function App() {
           instrument={instrument}
           speed={speed}
           onClose={() => setMiniPlayer(null)}
+          onHandoff={(elapsedSec, totalSec) => {
+            if (totalSec > 0) handoffAtRef.current = elapsedSec / totalSec
+          }}
         />
       )}
       {dupesToast && (
@@ -567,6 +777,17 @@ export default function App() {
       {showShare && (
         <ShareModal onClose={() => setShowShare(false)} statusLabels={statusLabels} />
       )}
+      {connectToken && (
+        <FriendConnectModal
+          token={connectToken}
+          onClose={() => setConnectToken(null)}
+          onConnected={(friend) => {
+            setUserFriends(prev => [...prev.filter(f => f.id !== friend.id), friend])
+            api.friendsTunes.list().then(setFriendsTunes).catch(() => {})
+            setConnectToken(null)
+          }}
+        />
+      )}
       {showDupes && (
         <DupeReviewModal
           onClose={() => setShowDupes(false)}
@@ -579,6 +800,68 @@ export default function App() {
         onSaved={() => setRecorderTarget(null)}
         onClear={() => setRecorderTarget(null)}
       />
+
+      {showPlayerDrawer && (
+        <PlayerDrawer
+          onClose={() => setShowPlayerDrawer(false)}
+          instrument={instrument} onSetInstrument={pickInstrument}
+          speed={speed} onSetSpeed={pickSpeed}
+          notationView={notationView} onToggleNotation={toggleNotationView}
+          clickMode={clickMode} onCycleClickMode={cycleClickMode}
+          tapMode={tapMode} onToggleTapMode={() => setTapMode(v => !v)}
+          practiceMode={practiceMode} onTogglePracticeMode={() => setPracticeMode(v => {
+            const next = !v; localStorage.setItem('trad-practice-mode', next); return next
+          })}
+        />
+      )}
+
+      {showToolsDrawer && (
+        <ToolsDrawer
+          onClose={() => setShowToolsDrawer(false)}
+          onTuner={() => setShowTuner(true)}
+          onSessions={() => setShowSessions(true)}
+          onRecord={() => setRecorderTarget({ tuneId: null, tuneTitle: null, label: '', recType: 'self' })}
+          onImport={() => setShowImport(true)}
+          onExport={() => setShowExport(true)}
+          onDupes={() => setShowDupes(true)}
+          tapMode={tapMode} onToggleTapMode={() => setTapMode(v => !v)}
+          practiceMode={practiceMode} onTogglePracticeMode={() => setPracticeMode(v => {
+            const next = !v; localStorage.setItem('trad-practice-mode', next); return next
+          })}
+        />
+      )}
+
+      {showFriendsDrawer && (
+        <FriendsDrawer
+          onClose={() => setShowFriendsDrawer(false)}
+          currentUser={currentUser}
+          users={users}
+          onSwitchUser={(user) => {
+            setCurrentUser(user); setShowFriendsDrawer(false); loadTunes(); loadStats()
+          }}
+          userFriends={userFriends}
+          onUserFriendsChange={setUserFriends}
+          onShare={() => setShowShare(true)}
+          onPairInvite={() => setShowPairInvite(true)}
+          onMatcher={() => setShowMatcher(true)}
+          onFriendsModal={() => setShowFriends(true)}
+        />
+      )}
+
+      {/* User picker — shown on first load (currentUser null) or when switching */}
+      {(!currentUser || showUserPicker) && users.length > 0 && (
+        <UserPicker
+          users={users}
+          overlay={showUserPicker && !!currentUser}
+          onPicked={(user) => {
+            setCurrentUser(user)
+            setShowUserPicker(false)
+            // Reload data for new user
+            loadTunes()
+            loadStats()
+          }}
+        />
+      )}
     </div>
   )
 }

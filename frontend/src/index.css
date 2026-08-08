@@ -11,11 +11,11 @@
   fill: #16a34a;
 }
 
-/* Hot pink note highlight during MIDI playback — glow + broad element coverage */
+/* Amber note highlight during MIDI playback — high contrast, colour-blind safe */
 .abcjs-highlight {
-  filter: drop-shadow(0 0 6px #FF3399);
+  filter: drop-shadow(0 0 7px #FFBF00);
 }
 .abcjs-highlight * {
-  fill: #FF3399 !important;
-  stroke: #FF3399 !important;
+  fill: #FFBF00 !important;
+  stroke: #FFBF00 !important;
 }
