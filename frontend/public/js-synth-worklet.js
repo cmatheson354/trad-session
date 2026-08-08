@@ -1,9 +1,12 @@
-// AudioWorklet modules do not support importScripts; use fetch + indirect eval instead.
-// Indirect eval runs in AudioWorkletGlobalScope so var declarations become globals —
-// libfluidsynth.js ends by setting AudioWorkletGlobalScope.wasmModule = Module.
+// AudioWorklet modules do not support importScripts.
+// Replicate it via fetch + indirect eval — (0,eval) runs code in AudioWorkletGlobalScope
+// (global scope), so var declarations become globals and registerProcessor() works.
+// This is equivalent to: importScripts('/libfluidsynth.js', '/js-synthesizer.worklet.js')
 
-const res = await fetch('/libfluidsynth.js')
-const code = await res.text()
-;(0, eval)(code)
+const _evalUrl = async (url) => {
+  const code = await (await fetch(url)).text()
+  ;(0, eval)(code)
+}
 
-await import('/js-synthesizer.worklet.js')
+await _evalUrl('/libfluidsynth.js')
+await _evalUrl('/js-synthesizer.worklet.js')

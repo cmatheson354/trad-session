@@ -10,3 +10,5 @@ export {
   clearSfCache,
   initEngine,
 } from './fluidSynth.js'
+
+export { getEngine, resumeAudio } from './fluidSynth.js'
