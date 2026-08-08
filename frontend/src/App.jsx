@@ -411,28 +411,11 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-1.5 sm:gap-2">
-              {currentUser && (
-                <button
-                  onClick={() => setShowUserPicker(true)}
-                  title="Switch user"
-                  className="text-xs font-medium px-2.5 py-1.5 rounded-full bg-green-700 border border-green-500 hover:bg-green-600 text-green-100 flex items-center gap-1.5 transition-colors"
-                >
-                  <span>{currentUser.name === 'Chris' ? '🪈' : currentUser.name === 'Tre' ? '🎸' : '👤'}</span>
-                  <span className="hidden sm:inline">{currentUser.name}</span>
-                </button>
-              )}
-              <button
-                onClick={() => setShowSearch(true)}
-                className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 sm:px-3 py-2 rounded-lg transition-colors text-sm flex items-center gap-1"
-                title="Find a Tune"
-              >
-                <span>🔍</span><span className="hidden sm:inline"> Find a Tune</span>
-              </button>
-
             </div>
           </div>
-          {/* Second row: settings toggles */}
+          {/* Second row: core actions + drawer launchers */}
           <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+            {/* Instrument cycle */}
             <button
               onClick={cycleInstrument}
               className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
@@ -440,6 +423,7 @@ export default function App() {
             >
               🎵 {instrLabel}
             </button>
+            {/* Speed cycle — also accessible in Player drawer */}
             <button
               onClick={cycleSpeed}
               className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
@@ -447,45 +431,39 @@ export default function App() {
             >
               ⏩ {speedLabel}
             </button>
+            {/* Click mode cycle */}
             <button
               onClick={cycleClickMode}
               className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
-              title="Cycle card click mode: Snippet → Full → Details"
+              title="Cycle card tap action: Snippet → Full → Details"
             >
               {CLICK_MODE_LABELS[clickMode]}
             </button>
-            {/* Sound quality picker — sits right next to speed */}
-            <div className="text-green-300">
-              <SoundUpgradeButton />
-            </div>
+            {/* 🎵 Player drawer */}
             <button
               onClick={() => setShowPlayerDrawer(true)}
               className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
               title="Player settings"
             >
-              🎛
+              🎵
             </button>
+            {/* 👥 Friends & Account drawer */}
             <button
               onClick={() => setShowFriendsDrawer(true)}
               className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
-              title="Friends &amp; people"
+              title="Friends & Account"
             >
               👥
             </button>
+            {/* 🎤 Tools drawer */}
             <button
               onClick={() => setShowToolsDrawer(true)}
               className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
               title="Tools"
             >
-              🛠
+              🎤
             </button>
-            <button
-              onClick={toggleNotationView}
-              className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
-              title="Toggle notation display"
-            >
-              𝄞 {notationView === 'sheet' ? 'Sheet' : 'ABC'}
-            </button>
+            {/* Tunes / Sets toggle */}
             <div className="flex rounded-lg overflow-hidden border border-green-600">
               <button
                 onClick={() => setViewMode('tunes')}
@@ -500,75 +478,19 @@ export default function App() {
                 🎼 Sets
               </button>
             </div>
-            <button
-              onClick={() => setShowSessions(true)}
-              className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
-            >
-              🎙 Sessions
-            </button>
-            <button
-              onClick={() => setShowPairInvite(true)}
-              className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
-              title="Tune Pairing"
-            >
-              🤝 Pair
-            </button>
-            <button
-              onClick={() => setShowFriends(true)}
-              className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
-              title="Friends"
-            >
-              👥 Friends
-            </button>
-            <button
-              onClick={() => setShowTuner(true)}
-              className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
-              title="Chromatic Tuner"
-            >
-              🎵 Tune
-            </button>
-            <button
-              onClick={() => setShowShare(true)}
-              className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
-              title="Share tune list"
-            >
-              🔗
-            </button>
-            <button
-              onClick={() => setShowMatcher(true)}
-              className="text-green-300 hover:text-white border border-green-600 hover:border-green-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
-              title="Session Matcher — find tunes everyone knows"
-            >
-              🤝
-            </button>
-            <button
-              onClick={() => setRecorderTarget({ tuneId: null, tuneTitle: null, label: '', recType: 'self' })}
-              className="text-red-300 hover:text-white border border-red-700 hover:border-red-400 font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1"
-              title="Start a background session recording"
-            >
-              ⏺
-            </button>
+            {/* 📋 List menu */}
             <div className="relative">
               <button
                 onClick={() => setShowListMenu(v => !v)}
                 className={`border font-medium px-2.5 py-1.5 rounded-lg transition-colors text-xs flex items-center gap-1 ${showListMenu ? 'border-green-400 text-white bg-green-700' : 'text-green-300 hover:text-white border-green-600 hover:border-green-400'}`}
               >
-                📋 List {tapMode && <span className="ml-1 text-yellow-300">●</span>}
+                📋 List
               </button>
               {showListMenu && (
                 <ListMenu
-                  tapMode={tapMode}
-                  onToggleTapMode={() => setTapMode(v => !v)}
-                  practiceMode={practiceMode}
-                  onTogglePracticeMode={() => setPracticeMode(v => {
-                    const next = !v
-                    localStorage.setItem('trad-practice-mode', next)
-                    return next
-                  })}
                   onSets={() => setViewMode('sets')}
                   onImport={() => setShowImport(true)}
                   onExport={() => setShowExport(true)}
-                  onSettings={() => setShowSettings(true)}
                   onDupes={() => setShowDupes(true)}
                   onClose={() => setShowListMenu(false)}
                 />
@@ -824,10 +746,9 @@ export default function App() {
           onImport={() => setShowImport(true)}
           onExport={() => setShowExport(true)}
           onDupes={() => setShowDupes(true)}
-          tapMode={tapMode} onToggleTapMode={() => setTapMode(v => !v)}
-          practiceMode={practiceMode} onTogglePracticeMode={() => setPracticeMode(v => {
-            const next = !v; localStorage.setItem('trad-practice-mode', next); return next
-          })}
+          onShare={() => setShowShare(true)}
+          onMatcher={() => setShowMatcher(true)}
+          onPairInvite={() => setShowPairInvite(true)}
         />
       )}
 

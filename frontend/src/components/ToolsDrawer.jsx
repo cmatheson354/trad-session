@@ -1,4 +1,4 @@
-// ToolsDrawer — tuner, recordings, import/export, and list management
+// ToolsDrawer — 🎤 mic icon — audio tools + tune list management + sharing/social
 export default function ToolsDrawer({
   onClose,
   onTuner,
@@ -7,10 +7,9 @@ export default function ToolsDrawer({
   onImport,
   onExport,
   onDupes,
-  onSettings: _onSettings,
-  tapMode, onToggleTapMode,
-  practiceMode, onTogglePracticeMode,
-  // (moved to PlayerDrawer)
+  onShare,
+  onMatcher,
+  onPairInvite,
 }) {
   const Row = ({ icon, label, onClick, accent = false }) => (
     <button
@@ -25,28 +24,12 @@ export default function ToolsDrawer({
     </button>
   )
 
-  const Toggle = ({ icon, label, active, onToggle }) => (
-    <button
-      onClick={onToggle}
-      className={`w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
-        active ? 'bg-yellow-600/30 border border-yellow-600 text-yellow-200' : 'bg-gray-800 hover:bg-gray-700 text-gray-200'
-      }`}>
-      <div className="flex items-center gap-3">
-        <span className="text-lg w-6 text-center">{icon}</span>
-        <span>{label}</span>
-      </div>
-      <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${active ? 'bg-yellow-600 text-white' : 'bg-gray-700 text-gray-400'}`}>
-        {active ? 'ON' : 'OFF'}
-      </span>
-    </button>
-  )
-
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
       <div className="bg-gray-900 text-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-sm" onClick={e => e.stopPropagation()}>
 
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700 sticky top-0 bg-gray-900 rounded-t-2xl z-10">
-          <h2 className="text-base font-bold">🔧 Tools</h2>
+          <h2 className="text-base font-bold">🎤 Tools</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
         </div>
 
@@ -61,6 +44,11 @@ export default function ToolsDrawer({
           <Row icon="📥" label="Import Tunes" onClick={onImport} />
           <Row icon="📤" label="Export Tunes" onClick={onExport} />
           <Row icon="🔍" label="Find Duplicates" onClick={onDupes} />
+
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide px-1 pt-3 pb-1">Share & Discover</p>
+          <Row icon="🔗" label="Share Tune List" onClick={onShare} />
+          <Row icon="🔀" label="Session Matcher" onClick={onMatcher} />
+          <Row icon="🤝" label="Tune Pairing" onClick={onPairInvite} />
 
         </div>
       </div>
